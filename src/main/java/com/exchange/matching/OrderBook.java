@@ -1,39 +1,39 @@
 package com.exchange.matching;
 
 import com.exchange.MEConstants;
-import com.exchange.marketdata.MEMarketUpdate;
+import com.exchange.marketdata.MarketUpdate;
 import com.exchange.marketdata.MarketUpdateType;
 import com.exchange.orderserver.ClientResponseType;
-import com.exchange.orderserver.MEClientResponse;
+import com.exchange.orderserver.ClientResponse;
 import com.exchange.orderserver.Side;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static com.exchange.MEConstants.PRIORITY_INVALID;
 
-public final class MEOrderBook {
+public final class OrderBook {
 
-    private static final Logger log = LoggerFactory.getLogger(MEOrderBook.class);
+    private static final Logger log = LoggerFactory.getLogger(OrderBook.class);
 
     private final long tickerId;
     private MatchingEngine matchingEngine;
 
-    private MEOrdersAtPrice bidsByPrice;
-    private MEOrdersAtPrice asksByPrice;
+    private OrdersAtPrice bidsByPrice;
+    private OrdersAtPrice asksByPrice;
 
-    private final ClientOrderHashMap clientOrders;
-    private final OrdersAtPriceMap priceOrdersAtPrice;
+    private final ClientOrderMap clientOrdersMap;
+    private final OrdersAtPriceMap ordersAtPriceMap;
 
-    private MEClientResponse clientResponse = new MEClientResponse();
-    private MEMarketUpdate marketUpdate = new MEMarketUpdate();
+    private ClientResponse clientResponse = new ClientResponse();
+    private MarketUpdate marketUpdate = new MarketUpdate();
 
     private long nextMarketOrderId = 1;
 
-    public MEOrderBook(long tickerId, MatchingEngine matchingEngine) {
+    public OrderBook(long tickerId, MatchingEngine matchingEngine) {
         this.tickerId = tickerId;
         this.matchingEngine = matchingEngine;
-        clientOrders = new ClientOrderHashMap(MEConstants.ME_MAX_NUM_CLIENTS, MEConstants.ME_MAX_ORDER_IDS);
-        priceOrdersAtPrice = new OrdersAtPriceMap(MEConstants.ME_MAX_PRICE_LEVELS);
+        clientOrdersMap = new ClientOrderMap(MEConstants.ME_MAX_NUM_CLIENTS, MEConstants.ME_MAX_ORDER_IDS);
+        ordersAtPriceMap = new OrdersAtPriceMap(MEConstants.ME_MAX_PRICE_LEVELS);
     }
 
     public void close() {
@@ -46,31 +46,31 @@ public final class MEOrderBook {
     public void add(long clientId, long clientOrderId, long tickerId, Side side, long price, long qty) {
         long marketOrderId = generateNewMarketOrderId();
 
-        clientResponse = new MEClientResponse(ClientResponseType.ACCEPTED, clientId, tickerId, clientOrderId, marketOrderId, side, price, 0, qty);
+        clientResponse = new ClientResponse(ClientResponseType.ACCEPTED, clientId, tickerId, clientOrderId, marketOrderId, side, price, 0, qty);
         matchingEngine.sendClientResponse(clientResponse);
 
         long leavesQty = matchNewOrder(clientId, clientOrderId, tickerId, side, price, qty, marketOrderId);
 
         if (leavesQty > 0) {
             long priority = getNextPriority(price);
-            MEOrder order = new MEOrder(tickerId, clientId, clientOrderId, marketOrderId, side, price, leavesQty, priority, null, null);
+            Order order = new Order(tickerId, clientId, clientOrderId, marketOrderId, side, price, leavesQty, priority, null, null);
             addOrder(order);
 
-            marketUpdate = new MEMarketUpdate(MarketUpdateType.ADD, marketOrderId, tickerId, side, price, leavesQty, priority);
+            marketUpdate = new MarketUpdate(MarketUpdateType.ADD, marketOrderId, tickerId, side, price, leavesQty, priority);
             matchingEngine.sendMarketUpdate(marketUpdate);
         }
     }
 
-    public void cancel(long clientId, long orderId, long tickerId) {
-        MEOrder order = clientOrders.get(clientId, orderId);
+    public void cancel(long clientId, long clientOrderId, long tickerId) {
+        Order order = clientOrdersMap.get(clientId, clientOrderId);
 
         if (order == null) {
-            clientResponse = new MEClientResponse(ClientResponseType.CANCEL_REJECTED, clientId, tickerId, orderId,
+            clientResponse = new ClientResponse(ClientResponseType.CANCEL_REJECTED, clientId, tickerId, clientOrderId,
                     MEConstants.ORDER_ID_INVALID, Side.INVALID, MEConstants.PRICE_INVALID, MEConstants.QTY_INVALID, MEConstants.QTY_INVALID);
         } else {
-            clientResponse = new MEClientResponse(ClientResponseType.CANCELED, clientId, tickerId, orderId,
+            clientResponse = new ClientResponse(ClientResponseType.CANCELED, clientId, tickerId, clientOrderId,
                     order.getMarketOrderId(), order.getSide(), order.getPrice(), MEConstants.QTY_INVALID, order.getQty());
-            marketUpdate = new MEMarketUpdate(MarketUpdateType.CANCEL, order.getMarketOrderId(), tickerId,
+            marketUpdate = new MarketUpdate(MarketUpdateType.CANCEL, order.getMarketOrderId(), tickerId,
                     order.getSide(), order.getPrice(), 0, order.getPriority());
 
             removeOrder(order);
@@ -86,7 +86,7 @@ public final class MEOrderBook {
         long leavesQty = qty;
         if (side == Side.BUY) {
             while (leavesQty > 0 && asksByPrice != null) {
-                MEOrder askItr = asksByPrice.getFirstMeOrder();
+                Order askItr = asksByPrice.getFirstOrder();
                 if (price < askItr.getPrice()) {
                     break;
                 }
@@ -94,7 +94,7 @@ public final class MEOrderBook {
             }
         } else if (side == Side.SELL) {
             while (leavesQty > 0 && bidsByPrice != null) {
-                MEOrder bidItr = bidsByPrice.getFirstMeOrder();
+                Order bidItr = bidsByPrice.getFirstOrder();
                 if (price > bidItr.getPrice()) {
                     break;
                 }
@@ -105,70 +105,70 @@ public final class MEOrderBook {
     }
 
     private long match(long tickerId, long clientId, Side side, long clientOrderId, long newMarketOrderId,
-                       MEOrder passiveOrder, long leavesQty) {
+                       Order passiveOrder, long leavesQty) {
         long orderQty = passiveOrder.getQty();
         long fillQty = Math.min(leavesQty, orderQty);
 
         leavesQty -= fillQty;
         passiveOrder.setQty(orderQty - fillQty);
 
-        clientResponse = new MEClientResponse(ClientResponseType.FILLED, clientId, tickerId, clientOrderId,
+        clientResponse = new ClientResponse(ClientResponseType.FILLED, clientId, tickerId, clientOrderId,
                 newMarketOrderId, side, passiveOrder.getPrice(), fillQty, leavesQty);
         matchingEngine.sendClientResponse(clientResponse); // Fill for the aggressive order
 
-        clientResponse = new MEClientResponse(ClientResponseType.FILLED, passiveOrder.getClientId(), tickerId,
+        clientResponse = new ClientResponse(ClientResponseType.FILLED, passiveOrder.getClientId(), tickerId,
                 passiveOrder.getClientOrderId(), passiveOrder.getMarketOrderId(), passiveOrder.getSide(),
                 passiveOrder.getPrice(), fillQty, passiveOrder.getQty());
         matchingEngine.sendClientResponse(clientResponse); // Fill for the passive order
 
-        marketUpdate = new MEMarketUpdate(MarketUpdateType.TRADE, MEConstants.ORDER_ID_INVALID, tickerId, side,
+        marketUpdate = new MarketUpdate(MarketUpdateType.TRADE, MEConstants.ORDER_ID_INVALID, tickerId, side,
                 passiveOrder.getPrice(), fillQty, PRIORITY_INVALID);
         matchingEngine.sendMarketUpdate(marketUpdate);
 
         if (passiveOrder.getQty() == 0) { // fully matched
-            marketUpdate = new MEMarketUpdate(MarketUpdateType.CANCEL, passiveOrder.getMarketOrderId(), tickerId,
+            marketUpdate = new MarketUpdate(MarketUpdateType.CANCEL, passiveOrder.getMarketOrderId(), tickerId,
                     passiveOrder.getSide(), passiveOrder.getPrice(), orderQty, PRIORITY_INVALID);
             matchingEngine.sendMarketUpdate(marketUpdate);
 
             removeOrder(passiveOrder);
         } else {
-            marketUpdate = new MEMarketUpdate(MarketUpdateType.MODIFY, passiveOrder.getMarketOrderId(), tickerId,
+            marketUpdate = new MarketUpdate(MarketUpdateType.MODIFY, passiveOrder.getMarketOrderId(), tickerId,
                     passiveOrder.getSide(), passiveOrder.getPrice(), passiveOrder.getQty(), passiveOrder.getPriority());
             matchingEngine.sendMarketUpdate(marketUpdate);
         }
         return leavesQty;
     }
 
-    private void addOrder(MEOrder order) {
-        MEOrdersAtPrice ordersAtPrice = priceOrdersAtPrice.get(order.getPrice());
+    private void addOrder(Order order) {
+        OrdersAtPrice ordersAtPrice = ordersAtPriceMap.get(order.getPrice());
         if (ordersAtPrice == null) {
             // Create new
             order.setNextOrder(order);
             order.setPrevOrder(order);
-            MEOrdersAtPrice newNode = new MEOrdersAtPrice(order.getSide(), order.getPrice(), order, null, null);
-            priceOrdersAtPrice.put(order.getPrice(), newNode);
+            OrdersAtPrice newNode = new OrdersAtPrice(order.getSide(), order.getPrice(), order, null, null);
+            ordersAtPriceMap.put(newNode);
 
             if (order.getSide() == Side.BUY) {
                 if (bidsByPrice == null) {
                     bidsByPrice = newNode;
-                    newNode.setPrevEntry(newNode);
-                    newNode.setNextEntry(newNode);
+                    newNode.setPrev(newNode);
+                    newNode.setNext(newNode);
                 } else {
                     insertPriceLevel(bidsByPrice, newNode, true);
                 }
             } else {
                 if (asksByPrice == null) {
                     asksByPrice = newNode;
-                    newNode.setPrevEntry(newNode);
-                    newNode.setNextEntry(newNode);
+                    newNode.setPrev(newNode);
+                    newNode.setNext(newNode);
                 } else {
                     insertPriceLevel(asksByPrice, newNode, false);
                 }
             }
         } else {
             // Insert into existing FIFO queue at this price
-            MEOrder firstOrder = ordersAtPrice.getFirstMeOrder();
-            MEOrder lastOrder = firstOrder.getPrevOrder();
+            Order firstOrder = ordersAtPrice.getFirstOrder();
+            Order lastOrder = firstOrder.getPrevOrder();
 
             lastOrder.setNextOrder(order);
             order.setPrevOrder(lastOrder);
@@ -176,11 +176,11 @@ public final class MEOrderBook {
             firstOrder.setPrevOrder(order);
         }
 
-        clientOrders.put(order);
+        clientOrdersMap.put(order);
     }
 
-    private void removeOrder(MEOrder order) {
-        MEOrdersAtPrice ordersAtPrice = priceOrdersAtPrice.get(order.getPrice());
+    private void removeOrder(Order order) {
+        OrdersAtPrice ordersAtPrice = ordersAtPriceMap.get(order.getPrice());
         if (ordersAtPrice == null) {
             return;
         }
@@ -189,28 +189,28 @@ public final class MEOrderBook {
             // Single order in this price level
             removeOrdersAtPrice(order.getSide(), order.getPrice());
         } else {
-            MEOrder prev = order.getPrevOrder();
-            MEOrder next = order.getNextOrder();
+            Order prev = order.getPrevOrder();
+            Order next = order.getNextOrder();
             prev.setNextOrder(next);
             next.setPrevOrder(prev);
 
-            if (ordersAtPrice.getFirstMeOrder() == order) {
-                ordersAtPrice.setFirstMeOrder(next);
+            if (ordersAtPrice.getFirstOrder() == order) {
+                ordersAtPrice.setFirstOrder(next);
             }
             order.setPrevOrder(null);
             order.setNextOrder(null);
         }
 
-        clientOrders.remove(order);
+        clientOrdersMap.remove(order);
     }
 
     private void removeOrdersAtPrice(Side side, long price) {
-        MEOrdersAtPrice node = priceOrdersAtPrice.get(price);
+        OrdersAtPrice node = ordersAtPriceMap.get(price);
         if (node == null) {
             return;
         }
 
-        if (node.getNextEntry() == node) {
+        if (node.getNext() == node) {
             // Single price level
             if (side == Side.BUY) {
                 bidsByPrice = null;
@@ -218,10 +218,10 @@ public final class MEOrderBook {
                 asksByPrice = null;
             }
         } else {
-            MEOrdersAtPrice prev = node.getPrevEntry();
-            MEOrdersAtPrice next = node.getNextEntry();
-            prev.setNextEntry(next);
-            next.setPrevEntry(prev);
+            OrdersAtPrice prev = node.getPrev();
+            OrdersAtPrice next = node.getNext();
+            prev.setNext(next);
+            next.setPrev(prev);
 
             if (side == Side.BUY && bidsByPrice == node) {
                 bidsByPrice = next;
@@ -229,22 +229,22 @@ public final class MEOrderBook {
                 asksByPrice = next;
             }
         }
-        priceOrdersAtPrice.put(price, null);
+        ordersAtPriceMap.remove(price);
     }
 
     // Insert newNode into the doubly linked list of price levels.
-    private void insertPriceLevel(MEOrdersAtPrice best, MEOrdersAtPrice newNode, boolean isBuy) {
+    private void insertPriceLevel(OrdersAtPrice best, OrdersAtPrice newNode, boolean isBuy) {
         // If the new node is "better" than the current best, insert it as the new best.
         // For buys, a "better" price is higher. For sells, a "better" price is lower.
         if ((isBuy && newNode.getPrice() > best.getPrice()) ||
                 (!isBuy && newNode.getPrice() < best.getPrice())) {
 
             // Insert newNode before 'best' in the ring
-            MEOrdersAtPrice prevBest = best.getPrevEntry();
-            prevBest.setNextEntry(newNode);
-            newNode.setPrevEntry(prevBest);
-            newNode.setNextEntry(best);
-            best.setPrevEntry(newNode);
+            OrdersAtPrice prevBest = best.getPrev();
+            prevBest.setNext(newNode);
+            newNode.setPrev(prevBest);
+            newNode.setNext(best);
+            best.setPrev(newNode);
 
             if (isBuy) {
                 bidsByPrice = newNode;
@@ -256,15 +256,15 @@ public final class MEOrderBook {
 
         // For buys: we move forward while newNode's price is <= the next node's price (descending).
         // For sells: we move forward while newNode's price is >= the next node's price (ascending).
-        MEOrdersAtPrice current = best;
+        OrdersAtPrice current = best;
         while (true) {
-            MEOrdersAtPrice next = current.getNextEntry();
+            OrdersAtPrice next = current.getNext();
             if (next == best || isBuy ? newNode.getPrice() > next.getPrice() : newNode.getPrice() < next.getPrice()) {
                 // Insert 'newNode' after 'current' and before 'next'
-                newNode.setNextEntry(next);
-                newNode.setPrevEntry(current);
-                current.setNextEntry(newNode);
-                next.setPrevEntry(newNode);
+                newNode.setNext(next);
+                newNode.setPrev(current);
+                current.setNext(newNode);
+                next.setPrev(newNode);
                 return;
             }
 
@@ -273,8 +273,8 @@ public final class MEOrderBook {
     }
 
     private long getNextPriority(long price) {
-        MEOrdersAtPrice node = priceOrdersAtPrice.get(price);
-        return node == null ? 1 : node.getFirstMeOrder().getPrevOrder().getPriority() + 1;
+        OrdersAtPrice node = ordersAtPriceMap.get(price);
+        return node == null ? 1 : node.getFirstOrder().getPrevOrder().getPriority() + 1;
     }
 
     private long generateNewMarketOrderId() {

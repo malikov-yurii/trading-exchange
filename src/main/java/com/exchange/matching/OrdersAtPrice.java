@@ -9,21 +9,21 @@ import lombok.Data;
  */
 @Data
 @AllArgsConstructor
-public class MEOrdersAtPrice {
+public class OrdersAtPrice {
     private Side side;
     private long price;
-    private MEOrder firstMeOrder;
-    private MEOrdersAtPrice prevEntry;
-    private MEOrdersAtPrice nextEntry;
+    private Order firstOrder;
+    private OrdersAtPrice prev;
+    private OrdersAtPrice next;
 
     @Override
     public String toString() {
         return "MEOrdersAtPrice["
                 + "side:" + side
                 + " price:" + price
-                + " firstMeOrder:" + firstMeOrder
-                + " prev:" + (prevEntry != null ? prevEntry.getPrice() : null)
-                + " next:" + (nextEntry != null ? nextEntry.getPrice() : null)
+                + " firstMeOrder:" + firstOrder
+                + " prev:" + (prev != null ? prev.getPrice() : null)
+                + " next:" + (next != null ? next.getPrice() : null)
                 + "]";
     }
 

@@ -1,12 +1,10 @@
 package com.exchange.matching;
 
 import com.exchange.MEConstants;
-import com.exchange.marketdata.MEMarketUpdate;
-import com.exchange.marketdata.MEMarketUpdateLFQueue;
-import com.exchange.orderserver.ClientRequestLFQueue;
-import com.exchange.orderserver.ClientResponseLFQueue;
-import com.exchange.orderserver.MEClientRequest;
-import com.exchange.orderserver.MEClientResponse;
+import com.exchange.marketdata.MarketUpdate;
+import com.exchange.orderserver.ClientRequest;
+import com.exchange.orderserver.ClientResponse;
+import com.exchange.orderserver.LFQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,46 +13,31 @@ import java.util.Arrays;
 public final class MatchingEngine {
     private static final Logger log = LoggerFactory.getLogger(MatchingEngine.class);
 
-    private final MEOrderBook[] tickerOrderBook;
-    private ClientRequestLFQueue incomingRequests;
-    private ClientResponseLFQueue outgoingResponses;
-    private MEMarketUpdateLFQueue outgoingMdUpdates;
-
-    private volatile boolean run;
-    private Thread engineThread;
+    private final OrderBook[] tickerOrderBook;
+    private LFQueue<ClientRequest> incomingRequests;
+    private LFQueue<ClientResponse> outgoingResponses;
+    private LFQueue<MarketUpdate> outgoingMdUpdates;
 
     public MatchingEngine(
-            ClientRequestLFQueue clientRequests,
-            ClientResponseLFQueue clientResponses,
-            MEMarketUpdateLFQueue marketUpdates
+            LFQueue<ClientRequest> clientRequests,
+            LFQueue<ClientResponse> clientResponses,
+            LFQueue<MarketUpdate> marketUpdates
     ) {
         this.incomingRequests = clientRequests;
         this.outgoingResponses = clientResponses;
         this.outgoingMdUpdates = marketUpdates;
-        this.tickerOrderBook = new MEOrderBook[MEConstants.ME_MAX_TICKERS];
+        this.tickerOrderBook = new OrderBook[MEConstants.ME_MAX_TICKERS];
         for (int i = 0; i < tickerOrderBook.length; i++) {
-            this.tickerOrderBook[i] = new MEOrderBook(i, this);
+            this.tickerOrderBook[i] = new OrderBook(i, this);
         }
+        incomingRequests.subscribe(this::processClientRequest);
     }
 
     public void start() {
-        run = true;
-        engineThread = new Thread(this::run, "MatchingEngineMain");
-        engineThread.start();
-    }
-
-    public void stop() {
-        run = false;
+        log.info("MatchingEngine started");
     }
 
     public void close() {
-        stop();
-
-        try {
-            engineThread.join(60_000);
-        } catch (InterruptedException ignored) {
-        }
-
         incomingRequests = null;
         outgoingResponses = null;
         outgoingMdUpdates = null;
@@ -62,20 +45,9 @@ public final class MatchingEngine {
         Arrays.fill(tickerOrderBook, null);
     }
 
-    private void run() {
-        log.info("MatchingEngine started");
-        while (run) {
-            MEClientRequest request = incomingRequests.poll();
-            if (request != null) {
-                log.info("Processing {}", request);
-                processClientRequest(request);
-            }
-        }
-        log.info("MatchingEngine stopped");
-    }
-
-    private void processClientRequest(MEClientRequest req) {
-        MEOrderBook orderBook = tickerOrderBook[(int) req.getTickerId()];
+    private void processClientRequest(ClientRequest req) {
+        log.info("Processing {}", req);
+        OrderBook orderBook = tickerOrderBook[(int) req.getTickerId()];
 
         switch (req.getType()) {
             case NEW:
@@ -89,12 +61,12 @@ public final class MatchingEngine {
         }
     }
 
-    public void sendClientResponse(MEClientResponse response) {
+    public void sendClientResponse(ClientResponse response) {
         log.info("Sending {}", response);
         outgoingResponses.offer(response);
     }
 
-    public void sendMarketUpdate(MEMarketUpdate update) {
+    public void sendMarketUpdate(MarketUpdate update) {
         log.info("Sending {}", update);
         outgoingMdUpdates.offer(update);
     }

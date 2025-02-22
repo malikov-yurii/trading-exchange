@@ -9,7 +9,7 @@ import lombok.Data;
  */
 @Data
 @AllArgsConstructor
-public class MEOrder {
+public class Order {
 
     private long tickerId;
     private long clientId;
@@ -19,8 +19,8 @@ public class MEOrder {
     private long price;
     private long qty;
     private long priority;
-    private MEOrder prevOrder;
-    private MEOrder nextOrder;
+    private Order prevOrder;
+    private Order nextOrder;
 
     @Override
     public String toString() {

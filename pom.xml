@@ -13,10 +13,26 @@
     </properties>
 
     <dependencies>
+
+        <!-- https://mvnrepository.com/artifact/com.aitusoftware/babl -->
+        <dependency>
+            <groupId>com.aitusoftware</groupId>
+            <artifactId>babl</artifactId>
+            <version>0.11.0</version>
+        </dependency>
+
+
+        <dependency>
+            <groupId>org.java-websocket</groupId>
+            <artifactId>Java-WebSocket</artifactId>
+            <version>1.5.5</version> <!-- or latest -->
+        </dependency>
+
         <dependency>
             <groupId>io.aeron</groupId>
             <artifactId>aeron-all</artifactId>
-            <version>1.43.0</version>
+<!--            <version>1.39.0</version>-->
+                        <version>1.42.1</version>
         </dependency>
 
         <dependency>
@@ -28,7 +44,17 @@
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
+            <version>1.18.36</version>
             <scope>provided</scope>
+        </dependency>
+
+
+
+
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-all</artifactId>
+            <version>4.1.96.Final</version>
         </dependency>
 
 

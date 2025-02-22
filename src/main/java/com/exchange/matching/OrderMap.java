@@ -2,28 +2,29 @@ package com.exchange.matching;
 
 public class OrderMap {
 
-    private final MEOrder[] orders;
+    private final Order[] orders;
 
     public OrderMap(int maxOrderIds) {
-        orders = new MEOrder[maxOrderIds];
+        orders = new Order[maxOrderIds];
     }
 
-    public MEOrder get(long orderId) {
-        if (orderId < 0 || orderId >= orders.length) {
+    public Order get(long clientOrderId) {
+        if (clientOrderId < 0 || clientOrderId >= orders.length) {
             return null;
         }
-        return orders[(int) orderId];
+        return orders[(int) clientOrderId];
     }
 
-    public void put(long orderId, MEOrder order) {
+    public void put(Order order) {
+        long orderId = order.getClientOrderId();
         if (orderId >= 0 && orderId < orders.length) {
             orders[(int) orderId] = order;
         }
     }
 
-    public void remove(long orderId) {
-        if (orderId >= 0 && orderId < orders.length) {
-            orders[(int) orderId] = null;
+    public void remove(long clientOrderId) {
+        if (clientOrderId >= 0 && clientOrderId < orders.length) {
+            orders[(int) clientOrderId] = null;
         }
     }
 

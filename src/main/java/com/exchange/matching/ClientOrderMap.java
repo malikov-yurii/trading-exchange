@@ -2,30 +2,30 @@ package com.exchange.matching;
 
 import com.exchange.MEConstants;
 
-public class ClientOrderHashMap {
+public class ClientOrderMap {
 
     private final OrderMap[] clientOrderMaps;
 
-    public ClientOrderHashMap(int maxNumClients, int maxOrderIds) {
+    public ClientOrderMap(int maxNumClients, int maxOrderIds) {
         clientOrderMaps = new OrderMap[maxNumClients];
         for (int i = 0; i < maxNumClients; i++) {
             clientOrderMaps[i] = new OrderMap(maxOrderIds);
         }
     }
 
-    public MEOrder get(long clientId, long orderId) {
+    public Order get(long clientId, long clientOrderId) {
         if (clientId >= 0 && clientId < MEConstants.ME_MAX_NUM_CLIENTS) {
             return null;
         }
         OrderMap orderMap = get(clientId);
-        return orderMap != null ? orderMap.get(orderId) : null;
+        return orderMap != null ? orderMap.get(clientOrderId) : null;
     }
 
-    public void put(MEOrder order) {
-        get(order.getClientId()).put(order.getClientOrderId(), order);
+    public void put(Order order) {
+        get(order.getClientId()).put(order);
     }
 
-    public void remove(MEOrder order) {
+    public void remove(Order order) {
         get(order.getClientId()).remove(order.getClientOrderId());
     }
 
