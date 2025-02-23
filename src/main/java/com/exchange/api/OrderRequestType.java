@@ -1,4 +1,4 @@
-package com.exchange.orderserver;
+package com.exchange.api;
 
 import lombok.Getter;
 
@@ -6,7 +6,7 @@ import lombok.Getter;
  * Type of the order request sent by the trading client to the exchange.
  */
 @Getter
-public enum ClientRequestType {
+public enum OrderRequestType {
 
     INVALID((byte) 0),
     NEW((byte) 1),
@@ -14,7 +14,7 @@ public enum ClientRequestType {
 
     private final byte value;
 
-    ClientRequestType(byte value) {
+    OrderRequestType(byte value) {
         this.value = value;
     }
 

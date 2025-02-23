@@ -1,4 +1,4 @@
-package com.exchange.marketdata;
+package com.exchange.api;
 
 import lombok.Getter;
 

@@ -1,5 +1,8 @@
 package com.exchange.orderserver;
 
+import com.exchange.api.OrderRequest;
+import com.exchange.api.OrderRequestType;
+import com.exchange.api.Side;
 import io.aeron.Aeron;
 import io.aeron.Publication;
 import io.aeron.Subscription;
@@ -12,7 +15,7 @@ import org.agrona.concurrent.UnsafeBuffer;
 import java.nio.ByteBuffer;
 
 // Pseudo interface for a lock-free queue of ClientRequest
-public class AeronClientRequestLFQueue implements LFQueue<ClientRequest> {
+public class AeronClientRequestLFQueue implements LFQueue<OrderRequest> {
 
     private final Aeron aeron;
     private final Publication publication;
@@ -47,7 +50,7 @@ public class AeronClientRequestLFQueue implements LFQueue<ClientRequest> {
     }
 
     @Override
-    public void offer(ClientRequest request) {
+    public void offer(OrderRequest request) {
         // Serialize request into sendBuffer
         int length = serializeClientRequest(request, sendBuffer, 0);
 
@@ -67,12 +70,12 @@ public class AeronClientRequestLFQueue implements LFQueue<ClientRequest> {
     }
 
     @Override
-    public ClientRequest poll() {
+    public OrderRequest poll() {
         // Attempt to poll from subscription
-        final ClientRequest[] holder = new ClientRequest[1]; // hacky closure capture
+        final OrderRequest[] holder = new OrderRequest[1]; // hacky closure capture
 
         subscription.poll((buffer, offset, length, header) -> {
-            ClientRequest request = deserializeClientRequest(buffer, offset, length);
+            OrderRequest request = deserializeClientRequest(buffer, offset, length);
             holder[0] = request;
         }, 1);
 
@@ -82,7 +85,7 @@ public class AeronClientRequestLFQueue implements LFQueue<ClientRequest> {
     // Example serialization: Very naive.
     // Writes: seqNum (8 bytes), type (1 byte), side (1 byte), clientId/tickerId/orderId/price/qty (8 bytes each).
     // You can replace with SBE or your own scheme.
-    private int serializeClientRequest(ClientRequest req, UnsafeBuffer buffer, int offset) {
+    private int serializeClientRequest(OrderRequest req, UnsafeBuffer buffer, int offset) {
         int pos = offset;
         buffer.putLong(pos, req.getSeqNum());
         pos += 8;
@@ -106,20 +109,20 @@ public class AeronClientRequestLFQueue implements LFQueue<ClientRequest> {
         return pos - offset;
     }
 
-    private ClientRequest deserializeClientRequest(DirectBuffer buffer, int offset, int length) {
-        ClientRequest req = new ClientRequest();
+    private OrderRequest deserializeClientRequest(DirectBuffer buffer, int offset, int length) {
+        OrderRequest req = new OrderRequest();
 
         int pos = offset;
         long seq = buffer.getLong(pos);
         req.setSeqNum(seq);
         pos += 8;
 
-        ClientRequestType[] crtValues = ClientRequestType.values();
+        OrderRequestType[] crtValues = OrderRequestType.values();
         Side[] sideValues = Side.values();
         byte typeOrd = buffer.getByte(pos++);
         byte sideOrd = buffer.getByte(pos++);
 
-        req.setType((typeOrd >= 0 && typeOrd < crtValues.length) ? crtValues[typeOrd] : ClientRequestType.INVALID);
+        req.setType((typeOrd >= 0 && typeOrd < crtValues.length) ? crtValues[typeOrd] : OrderRequestType.INVALID);
         req.setSide((sideOrd >= 0 && sideOrd < sideValues.length) ? sideValues[sideOrd] : Side.INVALID);
 
         req.setClientId(buffer.getLong(pos));   pos += 8;

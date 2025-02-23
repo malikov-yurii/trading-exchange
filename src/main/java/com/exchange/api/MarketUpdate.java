@@ -1,5 +1,4 @@
-package com.exchange.marketdata;
-import com.exchange.orderserver.Side;
+package com.exchange.api;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -28,4 +27,19 @@ public class MarketUpdate {
         this.qty = qty;
         this.priority = priority;
     }
+
+    @Override
+    public String toString() {
+        return String.format(
+                "MarketUpdate{ %2d: %-7s orderId=%-3d %-4s %7s ticker=%d priority=%d }",
+                seqNum,
+                type,
+                orderId,
+                side,
+                qty + "@" + price,
+                tickerId,
+                priority
+        );
+    }
+
 }

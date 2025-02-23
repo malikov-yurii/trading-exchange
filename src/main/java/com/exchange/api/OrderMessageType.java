@@ -1,9 +1,9 @@
-package com.exchange.orderserver;
+package com.exchange.api;
 
 import lombok.Getter;
 
 @Getter
-public enum ClientResponseType {
+public enum OrderMessageType {
 
     INVALID((byte) 0),
     ACCEPTED((byte) 1),
@@ -13,7 +13,7 @@ public enum ClientResponseType {
 
     private final byte value;
 
-    ClientResponseType(byte value) {
+    OrderMessageType(byte value) {
         this.value = value;
     }
 

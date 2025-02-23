@@ -1,11 +1,11 @@
 package com.exchange.matching;
 
 import com.exchange.MEConstants;
-import com.exchange.marketdata.MarketUpdate;
-import com.exchange.marketdata.MarketUpdateType;
-import com.exchange.orderserver.ClientResponseType;
-import com.exchange.orderserver.ClientResponse;
-import com.exchange.orderserver.Side;
+import com.exchange.api.MarketUpdate;
+import com.exchange.api.MarketUpdateType;
+import com.exchange.api.OrderMessageType;
+import com.exchange.api.OrderMessage;
+import com.exchange.api.Side;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,7 +24,7 @@ public final class OrderBook {
     private final ClientOrderMap clientOrdersMap;
     private final OrdersAtPriceMap ordersAtPriceMap;
 
-    private ClientResponse clientResponse = new ClientResponse();
+    private OrderMessage orderMessage = new OrderMessage();
     private MarketUpdate marketUpdate = new MarketUpdate();
 
     private long nextMarketOrderId = 1;
@@ -46,8 +46,8 @@ public final class OrderBook {
     public void add(long clientId, long clientOrderId, long tickerId, Side side, long price, long qty) {
         long marketOrderId = generateNewMarketOrderId();
 
-        clientResponse = new ClientResponse(ClientResponseType.ACCEPTED, clientId, tickerId, clientOrderId, marketOrderId, side, price, 0, qty);
-        matchingEngine.sendClientResponse(clientResponse);
+        orderMessage = new OrderMessage(OrderMessageType.ACCEPTED, clientId, tickerId, clientOrderId, marketOrderId, side, price, 0, qty);
+        matchingEngine.sendClientResponse(orderMessage);
 
         long leavesQty = matchNewOrder(clientId, clientOrderId, tickerId, side, price, qty, marketOrderId);
 
@@ -65,10 +65,10 @@ public final class OrderBook {
         Order order = clientOrdersMap.get(clientId, clientOrderId);
 
         if (order == null) {
-            clientResponse = new ClientResponse(ClientResponseType.CANCEL_REJECTED, clientId, tickerId, clientOrderId,
+            orderMessage = new OrderMessage(OrderMessageType.CANCEL_REJECTED, clientId, tickerId, clientOrderId,
                     MEConstants.ORDER_ID_INVALID, Side.INVALID, MEConstants.PRICE_INVALID, MEConstants.QTY_INVALID, MEConstants.QTY_INVALID);
         } else {
-            clientResponse = new ClientResponse(ClientResponseType.CANCELED, clientId, tickerId, clientOrderId,
+            orderMessage = new OrderMessage(OrderMessageType.CANCELED, clientId, tickerId, clientOrderId,
                     order.getMarketOrderId(), order.getSide(), order.getPrice(), MEConstants.QTY_INVALID, order.getQty());
             marketUpdate = new MarketUpdate(MarketUpdateType.CANCEL, order.getMarketOrderId(), tickerId,
                     order.getSide(), order.getPrice(), 0, order.getPriority());
@@ -77,7 +77,7 @@ public final class OrderBook {
             matchingEngine.sendMarketUpdate(marketUpdate);
         }
 
-        matchingEngine.sendClientResponse(clientResponse);
+        matchingEngine.sendClientResponse(orderMessage);
     }
 
     // Checks for a match between the new order and the existing orders in the order book.
@@ -112,14 +112,14 @@ public final class OrderBook {
         leavesQty -= fillQty;
         passiveOrder.setQty(orderQty - fillQty);
 
-        clientResponse = new ClientResponse(ClientResponseType.FILLED, clientId, tickerId, clientOrderId,
+        orderMessage = new OrderMessage(OrderMessageType.FILLED, clientId, tickerId, clientOrderId,
                 newMarketOrderId, side, passiveOrder.getPrice(), fillQty, leavesQty);
-        matchingEngine.sendClientResponse(clientResponse); // Fill for the aggressive order
+        matchingEngine.sendClientResponse(orderMessage); // Fill for the aggressive order
 
-        clientResponse = new ClientResponse(ClientResponseType.FILLED, passiveOrder.getClientId(), tickerId,
+        orderMessage = new OrderMessage(OrderMessageType.FILLED, passiveOrder.getClientId(), tickerId,
                 passiveOrder.getClientOrderId(), passiveOrder.getMarketOrderId(), passiveOrder.getSide(),
                 passiveOrder.getPrice(), fillQty, passiveOrder.getQty());
-        matchingEngine.sendClientResponse(clientResponse); // Fill for the passive order
+        matchingEngine.sendClientResponse(orderMessage); // Fill for the passive order
 
         marketUpdate = new MarketUpdate(MarketUpdateType.TRADE, MEConstants.ORDER_ID_INVALID, tickerId, side,
                 passiveOrder.getPrice(), fillQty, PRIORITY_INVALID);

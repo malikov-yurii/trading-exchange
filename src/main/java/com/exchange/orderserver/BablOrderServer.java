@@ -8,13 +8,16 @@ import com.aitusoftware.babl.websocket.DisconnectReason;
 import com.aitusoftware.babl.websocket.SendResult;
 import com.aitusoftware.babl.websocket.Session;
 import com.aitusoftware.babl.websocket.SessionContainers;
+import com.exchange.api.OrderMessage;
+import com.exchange.api.OrderRequest;
+import com.exchange.api.OrderRequestType;
+import com.exchange.api.Side;
 import org.agrona.DirectBuffer;
 import org.agrona.ExpandableDirectByteBuffer;
 import org.agrona.concurrent.ShutdownSignalBarrier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -25,8 +28,8 @@ import java.util.concurrent.atomic.AtomicLong;
 public class BablOrderServer implements Application {
     private static final Logger log = LoggerFactory.getLogger(BablOrderServer.class);
 
-    private final LFQueue<ClientRequest> requestQueue;
-    private final LFQueue<ClientResponse> responseQueue;
+    private final LFQueue<OrderRequest> requestQueue;
+    private final LFQueue<OrderMessage> responseQueue;
 
     private final AtomicLong reqSeqNum = new AtomicLong(1);
     private final AtomicLong respSeqNum = new AtomicLong(1);
@@ -37,7 +40,7 @@ public class BablOrderServer implements Application {
     private Thread serverThread;
     private SessionContainers containers;
 
-    public BablOrderServer(LFQueue<ClientRequest> requestQueue, LFQueue<ClientResponse> responseQueue) {
+    public BablOrderServer(LFQueue<OrderRequest> requestQueue, LFQueue<OrderMessage> responseQueue) {
         this.requestQueue = requestQueue;
         this.responseQueue = responseQueue;
         // Subscribe to inbound responses so we can forward them
@@ -45,8 +48,6 @@ public class BablOrderServer implements Application {
     }
 
     public void start() {
-        log.info("Starting BablOrderServer in a separate thread...");
-
         final BablConfig config = new BablConfig();
         config.sessionContainerConfig().bindAddress("0.0.0.0");
         config.sessionContainerConfig().listenPort(8080);
@@ -56,7 +57,7 @@ public class BablOrderServer implements Application {
             try {
                 containers = BablServer.launch(config);
                 containers.start();
-                log.info("BablOrderServer started, awaiting shutdown signal.");
+                log.info("BablOrderServer started.");
                 new ShutdownSignalBarrier().await();
             } catch (Exception e) {
                 log.error("Error in BablOrderServer thread", e);
@@ -104,38 +105,38 @@ public class BablOrderServer implements Application {
     public int onSessionMessage(Session session, ContentType contentType,
                                 DirectBuffer msg, int offset, int length) {
         try {
-            log.info("Received message from session {} ({} bytes): {}",
-                    session.id(), length, hexDump(msg, offset, length));
+//            log.info("Received message from session {} ({} bytes): {}",
+//                    session.id(), length, hexDump(msg, offset, length));
 
-            ClientRequest clientRequest = deserializeClientRequest(msg, offset, length);
+            OrderRequest orderRequest = deserializeClientRequest(msg, offset, length);
             long seq = reqSeqNum.getAndIncrement();
-            clientRequest.setSeqNum(seq);
+            orderRequest.setSeqNum(seq);
 
-            if (!sessionsByClientId.containsKey(clientRequest.getClientId())) {
-                log.info("First request from clientId={}", clientRequest.getClientId());
-                clientIdBySessionId.put(session.id(), clientRequest.getClientId());
-                sessionsByClientId.put(clientRequest.getClientId(), session);
+            if (!sessionsByClientId.containsKey(orderRequest.getClientId())) {
+                log.info("First request from clientId={}", orderRequest.getClientId());
+                clientIdBySessionId.put(session.id(), orderRequest.getClientId());
+                sessionsByClientId.put(orderRequest.getClientId(), session);
             }
 
-            log.info("Received ClientRequest: {}", clientRequest);
+            log.info("Received ClientRequest: {}", orderRequest);
 
-            requestQueue.offer(clientRequest);
+            requestQueue.offer(orderRequest);
         } catch (Exception e) {
             log.error("Error processing message from session {}: {}", session.id(), e.getMessage(), e);
         }
         return SendResult.OK;
     }
 
-    private void processResponse(ClientResponse clientResponse) {
-        if (clientResponse == null) {
+    private void processResponse(OrderMessage orderMessage) {
+        if (orderMessage == null) {
             log.error("processResponse. Received null response");
             return;
         }
 
         long seq = respSeqNum.getAndIncrement();
-        clientResponse.setSeqNum(seq);
+        orderMessage.setSeqNum(seq);
 
-        long clientId = clientResponse.getClientId();
+        long clientId = orderMessage.getClientId();
         Session session = sessionsByClientId.get(clientId);
         if (session == null) {
             log.error("processResponse. Client session not found for clientId={}", clientId);
@@ -146,34 +147,34 @@ public class BablOrderServer implements Application {
         ExpandableDirectByteBuffer buffer = new ExpandableDirectByteBuffer(128);
         int offset = 0;
 
-        buffer.putLong(offset, clientResponse.getSeqNum());
+        buffer.putLong(offset, orderMessage.getSeqNum());
         offset += Long.BYTES;
 
-        buffer.putByte(offset, (byte) clientResponse.getType().ordinal());
+        buffer.putByte(offset, (byte) orderMessage.getType().ordinal());
         offset += Byte.BYTES;
 
-        buffer.putByte(offset, (byte) clientResponse.getSide().ordinal());
+        buffer.putByte(offset, (byte) orderMessage.getSide().ordinal());
         offset += Byte.BYTES;
 
-        buffer.putLong(offset, clientResponse.getClientId());
+        buffer.putLong(offset, orderMessage.getClientId());
         offset += Long.BYTES;
 
-        buffer.putLong(offset, clientResponse.getTickerId());
+        buffer.putLong(offset, orderMessage.getTickerId());
         offset += Long.BYTES;
 
-        buffer.putLong(offset, clientResponse.getClientOrderId());
+        buffer.putLong(offset, orderMessage.getClientOrderId());
         offset += Long.BYTES;
 
-        buffer.putLong(offset, clientResponse.getMarketOrderId());
+        buffer.putLong(offset, orderMessage.getMarketOrderId());
         offset += Long.BYTES;
 
-        buffer.putLong(offset, clientResponse.getPrice());
+        buffer.putLong(offset, orderMessage.getPrice());
         offset += Long.BYTES;
 
-        buffer.putLong(offset, clientResponse.getExecQty());
+        buffer.putLong(offset, orderMessage.getExecQty());
         offset += Long.BYTES;
 
-        buffer.putLong(offset, clientResponse.getLeavesQty());
+        buffer.putLong(offset, orderMessage.getLeavesQty());
         offset += Long.BYTES;
 
         int length = offset;
@@ -182,7 +183,7 @@ public class BablOrderServer implements Application {
         // Attempt to send the data
         int sendResult = session.send(binary, buffer, 0, length);
 
-        log.info("Sent response {}. {}", clientResponse, sendResult == 0 ? "OK" : "FAILED");
+        log.info("Sent response {}. {}", orderMessage, sendResult == 0 ? "OK" : "FAILED");
     }
 
     /**
@@ -197,25 +198,25 @@ public class BablOrderServer implements Application {
         return sb.toString();
     }
 
-    private ClientRequest deserializeClientRequest(final DirectBuffer data, int offset, int length) {
-        ClientRequest req = new ClientRequest();
+    private OrderRequest deserializeClientRequest(final DirectBuffer data, int offset, int length) {
+        OrderRequest req = new OrderRequest();
         long seq = data.getLong(offset);
         offset += Long.BYTES;
         // If length is 50 => type+side present; if 49 => missing type => default to NEW
         if (length == 50) {
             byte typeOrd = data.getByte(offset++);
             byte sideOrd = data.getByte(offset++);
-            req.setType(ClientRequestType.values()[typeOrd]);
+            req.setType(OrderRequestType.values()[typeOrd]);
             req.setSide(Side.values()[sideOrd]);
         } else if (length == 49) {
-            req.setType(ClientRequestType.NEW);
+            req.setType(OrderRequestType.NEW);
             byte sideOrd = data.getByte(offset++);
             // 0 => BUY, 1 => SELL
             req.setSide(sideOrd == 0 ? Side.BUY : Side.SELL);
         } else {
             // throw or handle unexpected length
             log.warn("Unexpected message length: {}", length);
-            req.setType(ClientRequestType.NEW);
+            req.setType(OrderRequestType.NEW);
             req.setSide(Side.INVALID);
         }
         req.setSeqNum(seq);

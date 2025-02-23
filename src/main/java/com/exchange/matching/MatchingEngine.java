@@ -1,9 +1,9 @@
 package com.exchange.matching;
 
 import com.exchange.MEConstants;
-import com.exchange.marketdata.MarketUpdate;
-import com.exchange.orderserver.ClientRequest;
-import com.exchange.orderserver.ClientResponse;
+import com.exchange.api.MarketUpdate;
+import com.exchange.api.OrderRequest;
+import com.exchange.api.OrderMessage;
 import com.exchange.orderserver.LFQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,13 +14,13 @@ public final class MatchingEngine {
     private static final Logger log = LoggerFactory.getLogger(MatchingEngine.class);
 
     private final OrderBook[] tickerOrderBook;
-    private LFQueue<ClientRequest> incomingRequests;
-    private LFQueue<ClientResponse> outgoingResponses;
+    private LFQueue<OrderRequest> incomingRequests;
+    private LFQueue<OrderMessage> outgoingResponses;
     private LFQueue<MarketUpdate> outgoingMdUpdates;
 
     public MatchingEngine(
-            LFQueue<ClientRequest> clientRequests,
-            LFQueue<ClientResponse> clientResponses,
+            LFQueue<OrderRequest> clientRequests,
+            LFQueue<OrderMessage> clientResponses,
             LFQueue<MarketUpdate> marketUpdates
     ) {
         this.incomingRequests = clientRequests;
@@ -45,7 +45,7 @@ public final class MatchingEngine {
         Arrays.fill(tickerOrderBook, null);
     }
 
-    private void processClientRequest(ClientRequest req) {
+    private void processClientRequest(OrderRequest req) {
         log.info("Processing {}", req);
         OrderBook orderBook = tickerOrderBook[(int) req.getTickerId()];
 
@@ -61,7 +61,7 @@ public final class MatchingEngine {
         }
     }
 
-    public void sendClientResponse(ClientResponse response) {
+    public void sendClientResponse(OrderMessage response) {
         log.info("Sending {}", response);
         outgoingResponses.offer(response);
     }

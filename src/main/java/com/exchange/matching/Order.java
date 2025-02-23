@@ -1,6 +1,6 @@
 package com.exchange.matching;
 
-import com.exchange.orderserver.Side;
+import com.exchange.api.Side;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 

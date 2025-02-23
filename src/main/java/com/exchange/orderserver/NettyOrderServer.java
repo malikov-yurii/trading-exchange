@@ -1,5 +1,9 @@
 package com.exchange.orderserver;
 
+import com.exchange.api.OrderMessage;
+import com.exchange.api.OrderRequest;
+import com.exchange.api.OrderRequestType;
+import com.exchange.api.Side;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.PooledByteBufAllocator;
@@ -30,8 +34,8 @@ import java.util.concurrent.atomic.AtomicLong;
 
 public class NettyOrderServer {
 
-    private final LFQueue<ClientRequest> requestQueue;
-    private final LFQueue<ClientResponse> responseQueue;
+    private final LFQueue<OrderRequest> requestQueue;
+    private final LFQueue<OrderMessage> responseQueue;
 
     private final AtomicLong reqSeqNum = new AtomicLong(1);
     private final AtomicLong respSeqNum = new AtomicLong(1);
@@ -43,8 +47,8 @@ public class NettyOrderServer {
     private EventLoopGroup workerGroup;
     private Channel serverChannel;
 
-    public NettyOrderServer(LFQueue<ClientRequest> requestQueue,
-                            LFQueue<ClientResponse> responseQueue) {
+    public NettyOrderServer(LFQueue<OrderRequest> requestQueue,
+                            LFQueue<OrderMessage> responseQueue) {
         this.requestQueue = requestQueue;
         this.responseQueue = responseQueue;
     }
@@ -85,7 +89,7 @@ public class NettyOrderServer {
         }
     }
 
-    private void processResponse(ClientResponse omResp) {
+    private void processResponse(OrderMessage omResp) {
         if (omResp != null) {
 
             long seq = respSeqNum.getAndIncrement();
@@ -130,7 +134,7 @@ public class NettyOrderServer {
                 // parse the BinaryWebSocketFrame
                 ByteBuf content = frame.content();
                 ByteBuffer nioData = content.nioBuffer();
-                ClientRequest omReq = deserializeClientRequest(nioData);
+                OrderRequest omReq = deserializeClientRequest(nioData);
 
                 long seq = reqSeqNum.getAndIncrement();
                 omReq.setSeqNum(seq);
@@ -176,14 +180,14 @@ public class NettyOrderServer {
     /**
      * Helper to (de)serialize data. Must match the layout used by your matching engine.
      */
-    private ClientRequest deserializeClientRequest(ByteBuffer data) {
-        ClientRequest req = new ClientRequest();
+    private OrderRequest deserializeClientRequest(ByteBuffer data) {
+        OrderRequest req = new OrderRequest();
         long seq = data.getLong();
         req.setSeqNum(seq);
 
         byte typeOrd = data.get();
         byte sideOrd = data.get();
-        req.setType(ClientRequestType.values()[typeOrd]);
+        req.setType(OrderRequestType.values()[typeOrd]);
         req.setSide(Side.values()[sideOrd]);
 
         req.setClientId(data.getLong());
