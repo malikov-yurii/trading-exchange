@@ -19,12 +19,13 @@ public class MarketDataPublisher {
     private static final int DEFAULT_STREAM_ID = 1001;
 
     private final LFQueue<MarketUpdate> marketUpdateLFQueue;
+    private final LFQueue<MarketUpdate> sequencedMarketUpdates;
     private final Aeron aeron;
     private final Publication publication;
     private final AtomicLong msgSeqNum = new AtomicLong();
 
-    public MarketDataPublisher(LFQueue<MarketUpdate> marketUpdateLFQueue) {
-        this(marketUpdateLFQueue, DEFAULT_CHANNEL, DEFAULT_STREAM_ID);
+    public MarketDataPublisher(LFQueue<MarketUpdate> marketUpdateLFQueue, LFQueue<MarketUpdate> sequencedMarketUpdates) {
+        this(marketUpdateLFQueue, sequencedMarketUpdates, DEFAULT_CHANNEL, DEFAULT_STREAM_ID);
     }
 
     /**
@@ -32,9 +33,10 @@ public class MarketDataPublisher {
      * For a minimal example, we embed a MediaDriver and create a new Aeron instance.
      */
     public MarketDataPublisher(LFQueue<MarketUpdate> marketUpdateLFQueue,
-                               String channel,
+                               LFQueue<MarketUpdate> sequencedMarketUpdates, String channel,
                                int streamId) {
         this.marketUpdateLFQueue = marketUpdateLFQueue;
+        this.sequencedMarketUpdates = sequencedMarketUpdates;
 
         // Start an embedded MediaDriver if needed
         MediaDriver.Context mediaCtx = new MediaDriver.Context();
@@ -57,7 +59,12 @@ public class MarketDataPublisher {
      * Called whenever a new MarketUpdate arrives on local queue.
      */
     private void publish(MarketUpdate marketUpdate) {
+        if (marketUpdate == null) {
+            log.warn("Null MarketUpdate received");
+            return;
+        }
         marketUpdate.setSeqNum(msgSeqNum.getAndIncrement());
+        this.sequencedMarketUpdates.offer(marketUpdate);
 
         // Serialize MarketUpdate into a direct buffer
         // Minimal example: 1 byte type, 1 byte side, 6 longs.

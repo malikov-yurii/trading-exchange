@@ -52,6 +52,11 @@ public class ParticipantApplication {
         MarketDataConsumer marketDataConsumer = new MarketDataConsumer();
         Thread marketDataConsumerThread = new Thread(marketDataConsumer);
         marketDataConsumerThread.start();
+
+        MarketDataSnapshotConsumer marketDataSnapshotConsumer = new MarketDataSnapshotConsumer();
+        Thread marketDataSnapshotConsumerThread = new Thread(marketDataSnapshotConsumer);
+        marketDataSnapshotConsumerThread.start();
+
         Thread.sleep(200); // TODO Improve waiting for MarketDataConsumer to start
 
         OrderGatewayClient orderGatewayClient = new OrderGatewayClient(uri);
@@ -60,6 +65,7 @@ public class ParticipantApplication {
         new ShutdownSignalBarrier().await();
         orderGatewayClient.shutdown();
         marketDataConsumer.shutdown();
+        marketDataSnapshotConsumer.shutdown();
         log.info("ParticipantApplication terminated.");
 
     }

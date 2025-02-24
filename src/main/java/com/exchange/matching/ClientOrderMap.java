@@ -1,6 +1,6 @@
 package com.exchange.matching;
 
-import com.exchange.MEConstants;
+import com.exchange.Constants;
 
 public class ClientOrderMap {
 
@@ -14,7 +14,7 @@ public class ClientOrderMap {
     }
 
     public Order get(long clientId, long clientOrderId) {
-        if (clientId >= 0 && clientId < MEConstants.ME_MAX_NUM_CLIENTS) {
+        if (clientId >= 0 && clientId < Constants.ME_MAX_NUM_CLIENTS) {
             return null;
         }
         OrderMap orderMap = get(clientId);

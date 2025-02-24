@@ -1,12 +1,12 @@
 package com.exchange;
 
-public final class MEConstants {
+public final class Constants {
 
-    private MEConstants() {
+    private Constants() {
     }
 
     public static final int LOG_QUEUE_SIZE = 8 * 1024 * 1024;
-    public static final int ME_MAX_TICKERS = 8;
+    public static final int ME_MAX_TICKERS = 2;
     public static final int ME_MAX_CLIENT_UPDATES = 256 * 1024;
     public static final int ME_MAX_MARKET_UPDATES = 256 * 1024;
     public static final int ME_MAX_NUM_CLIENTS = 20;

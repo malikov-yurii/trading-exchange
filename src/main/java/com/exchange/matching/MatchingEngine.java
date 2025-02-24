@@ -1,6 +1,6 @@
 package com.exchange.matching;
 
-import com.exchange.MEConstants;
+import com.exchange.Constants;
 import com.exchange.api.MarketUpdate;
 import com.exchange.api.OrderRequest;
 import com.exchange.api.OrderMessage;
@@ -26,7 +26,7 @@ public final class MatchingEngine {
         this.incomingRequests = clientRequests;
         this.outgoingResponses = clientResponses;
         this.outgoingMdUpdates = marketUpdates;
-        this.tickerOrderBook = new OrderBook[MEConstants.ME_MAX_TICKERS];
+        this.tickerOrderBook = new OrderBook[Constants.ME_MAX_TICKERS];
         for (int i = 0; i < tickerOrderBook.length; i++) {
             this.tickerOrderBook[i] = new OrderBook(i, this);
         }
