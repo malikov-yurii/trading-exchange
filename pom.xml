@@ -5,11 +5,13 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.trading</groupId>
-    <artifactId>trading-exchange</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <artifactId>trading</artifactId>
+    <version>0.1.0</version>
 
     <properties>
-        <java.version>11</java.version>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
     <dependencies>
@@ -48,9 +50,6 @@
             <scope>provided</scope>
         </dependency>
 
-
-
-
         <dependency>
             <groupId>io.netty</groupId>
             <artifactId>netty-all</artifactId>
@@ -68,6 +67,12 @@
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
             <version>2.0.9</version>
+        </dependency>
+        <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-lang3 -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.17.0</version>
         </dependency>
 
         <dependency>
@@ -91,24 +96,73 @@
         </dependency>
     </dependencies>
 
+
+
     <build>
         <plugins>
+            <!-- Java 11 compilation -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.8.1</version>
+                <version>3.11.0</version>
                 <configuration>
-                    <source>${java.version}</source>
-                    <target>${java.version}</target>
+                    <release>11</release>
                 </configuration>
             </plugin>
 
+            <!-- Shade plugin: builds 2 different fat jars -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <version>2.22.2</version>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.4.1</version>
+                <executions>
+
+                    <!-- 1. Build trading-exchange fat jar -->
+                    <execution>
+                        <id>shade-exchange</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <finalName>trading-exchange-0.1.0</finalName>
+                            <transformers>
+
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>trading.exchange.ExchangeApplication</mainClass>
+                                    <manifestEntries>
+                                        <Add-Opens>java.base/sun.nio.ch=ALL-UNNAMED</Add-Opens>
+                                    </manifestEntries>
+                                </transformer>
+                            </transformers>
+                        </configuration>
+                    </execution>
+
+                    <!-- 2. Build trading-participant fat jar -->
+                    <execution>
+                        <id>shade-participant</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <finalName>trading-participant-0.1.0</finalName>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>trading.participant.ParticipantApplication</mainClass>
+                                    <manifestEntries>
+                                        <Add-Opens>java.base/sun.nio.ch=ALL-UNNAMED</Add-Opens>
+                                    </manifestEntries>
+                                </transformer>
+                            </transformers>
+                        </configuration>
+                    </execution>
+
+                </executions>
             </plugin>
+
         </plugins>
     </build>
+
 
 </project>

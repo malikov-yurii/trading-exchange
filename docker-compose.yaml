@@ -1,0 +1,60 @@
+version: "3.8"
+
+services:
+  exchange-1:
+    image: trading-exchange:0.1.0
+    container_name: exchange1
+    environment:
+      - INSTANCE_ID=1
+      - WS_IP=0.0.0.0
+      - WS_PORT=8080
+      - MD_IP=224.0.1.1
+      - MD_PORT=40456
+      - MD_SNAPSHOT_PORT=40457
+    ports:
+      - "8080:8080"
+      - "40456:40456/udp"
+      - "40457:40457/udp"
+    shm_size: "512m"
+    network_mode: "host"  # for multicast support
+
+  participant1:
+    image: trading-participant:0.1.0
+    container_name: participant1
+    environment:
+      - INSTANCE_ID=1
+      - STRATEGY_TYPE=MAKER
+    shm_size: "512m"
+    network_mode: "host"
+    depends_on:
+      - exchange-1
+
+#  participant2:
+#    image: trading-participant:0.1.0
+#    container_name: participant2
+#    environment:
+#      - INSTANCE_ID=2
+#      - STRATEGY_TYPE=RANDOM
+#    depends_on:
+#      - exchange-1
+
+#  zookeeper:
+#    image: zookeeper:3.7.0
+#    container_name: zookeeper
+#    ports:
+#      - "2181:2181"
+#    environment:
+#      ZOO_MY_ID: 1
+#      ZOO_SERVERS: server.1=zookeeper:2888:3888
+
+
+#  exchange2:
+#    image: trading-exchange:0.1.0
+#    container_name: exchange2
+#    environment:
+#      - INSTANCE_ID=2
+#    ports:
+#      - "8081:8080"  # Map internal port 8080 to a different host port
+#    depends_on:
+#      - zookeeper
+

@@ -1,0 +1,5 @@
+FROM openjdk:11-jre-slim
+
+COPY target/original-trading-exchange-0.1.0.jar /app/trading-exchange.jar
+
+ENTRYPOINT ["java", "-jar", "/app/trading-exchange.jar"]
