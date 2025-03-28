@@ -95,7 +95,7 @@ public class MarketDataConsumer implements Runnable {
         MarketUpdate marketUpdate = new MarketUpdate(
                 seqNum, type, orderId, tickerId, side, price, qty, priority);
 
-        log.info("Received {}", marketUpdate);
+//        log.info("Received {}", marketUpdate);
         tradeEngineUpdates.offer(new TradeEngineUpdate(marketUpdate, null));
     }
 

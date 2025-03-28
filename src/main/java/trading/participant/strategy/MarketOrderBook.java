@@ -36,7 +36,7 @@ public class MarketOrderBook {
 
     public void onMarketUpdate(MarketUpdate marketUpdate) {
         try {
-            log.info("onMarketUpdate. {}", marketUpdate);
+//            log.info("onMarketUpdate. {}", marketUpdate);
             if (marketUpdate.getTickerId() != tickerId) {
                 log.error("onMarketUpdate. Invalid tickerId: {}. Order book tikerId: {}", marketUpdate.getTickerId(), tickerId);
                 return;
@@ -73,8 +73,7 @@ public class MarketOrderBook {
 
 //            log.info("onMarketUpdate. Before tradeEngine.onOrderBookUpdate: {}", marketUpdate);
             tradeEngine.onOrderBookUpdate(this, marketUpdate.getPrice(), marketUpdate.getSide());
-
-            log.info("onMarketUpdate. Finished. {}", marketUpdate);
+//            log.info("onMarketUpdate. Finished. {}", marketUpdate);
         } catch (Exception e) {
             log.error("Error processing MarketUpdate: {}", marketUpdate, e);
         }
@@ -145,7 +144,7 @@ public class MarketOrderBook {
     }
 
     private void addOrder(MarketUpdate marketUpdate) {
-        log.info("Adding order: {}", marketUpdate);
+//        log.info("Adding order: {}", marketUpdate);
         MarketOrder marketOrder = new MarketOrder(marketUpdate.getTickerId(), marketUpdate.getOrderId(),
                 marketUpdate.getSide(), marketUpdate.getPrice(), marketUpdate.getQty(), marketUpdate.getPriority(),
                 null, null);

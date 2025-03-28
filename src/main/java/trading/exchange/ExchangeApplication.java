@@ -16,26 +16,52 @@ import org.agrona.concurrent.ShutdownSignalBarrier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.UnknownHostException;
+
 public class ExchangeApplication {
     private static final Logger log = LoggerFactory.getLogger(ExchangeApplication.class);
+    private LFQueue<OrderRequest> clientRequests;
+    private LFQueue<OrderMessage> clientResponses;
+    private LFQueue<MarketUpdate> marketUpdates;
+    private LFQueue<MarketUpdate> sequencedMarketUpdates;
+    private MatchingEngine matchingEngine;
+    private MarketDataSnapshotPublisher snapshotPublisher;
+    private MarketDataPublisher marketDataPublisher;
+    private OrderServer orderServer;
 
-    public static void main(String[] args) {
-        System.out.println("Trading Exchange Application Starting...");
-        LFQueue<OrderRequest> clientRequests = new DisruptorLFQueue<>(1024, "clientRequests", ProducerType.SINGLE);
-        LFQueue<OrderMessage> clientResponses = new DisruptorLFQueue<>(1024, "clientResponses", ProducerType.SINGLE);
-        LFQueue<MarketUpdate> marketUpdates = new DisruptorLFQueue<>(1024, "marketUpdates", ProducerType.SINGLE);
-        LFQueue<MarketUpdate> sequencedMarketUpdates = new DisruptorLFQueue<>(1024, "sequencedMarketUpdates", ProducerType.SINGLE);
+    public static void main(String[] args) throws UnknownHostException {
+        ExchangeApplication exchangeApplication = new ExchangeApplication();
 
-        MatchingEngine matchingEngine = new MatchingEngine(clientRequests, clientResponses, marketUpdates);
+        ZooKeeperLeadershipManager leadershipManager = new ZooKeeperLeadershipManager();
 
-        OrderServer orderServer = new OrderServer(clientRequests, clientResponses,
+        leadershipManager.onLeadershipAcquired(() -> {
+            log.info("Leadership acquired. Starting the exchange application");
+            exchangeApplication.startExchange();
+        });
+
+        leadershipManager.start();
+
+        new ShutdownSignalBarrier().await();
+        exchangeApplication.shutdown();
+    }
+
+    private synchronized void startExchange() {
+        log.info("Trading Exchange Application Starting...");
+        clientRequests = new DisruptorLFQueue<>(1024, "clientRequests", ProducerType.SINGLE);
+        clientResponses = new DisruptorLFQueue<>(1024, "clientResponses", ProducerType.SINGLE);
+        marketUpdates = new DisruptorLFQueue<>(1024, "marketUpdates", ProducerType.SINGLE);
+        sequencedMarketUpdates = new DisruptorLFQueue<>(1024, "sequencedMarketUpdates", ProducerType.SINGLE);
+
+        matchingEngine = new MatchingEngine(clientRequests, clientResponses, marketUpdates);
+
+        orderServer = new OrderServer(clientRequests, clientResponses,
                 env("WS_IP", "0.0.0.0"),
-                Integer.valueOf(env("WS_IP", "8080")));
+                Integer.valueOf(env("WS_PORT", "8080")));
 
         String mdIp = env("MD_IP", "224.0.1.1");
-        MarketDataPublisher marketDataPublisher = new MarketDataPublisher(marketUpdates, sequencedMarketUpdates,
+        marketDataPublisher = new MarketDataPublisher(marketUpdates, sequencedMarketUpdates,
                 "aeron:udp?endpoint=" + mdIp + ":" + env("MD_PORT", "40456"), 1001);
-        MarketDataSnapshotPublisher snapshotPublisher = new MarketDataSnapshotPublisher(sequencedMarketUpdates, Constants.ME_MAX_TICKERS,
+        snapshotPublisher = new MarketDataSnapshotPublisher(sequencedMarketUpdates, Constants.ME_MAX_TICKERS,
                 "aeron:udp?endpoint=" + mdIp + ":" + env("MD_SNAPSHOT_PORT", "40457"), 2001);
 
         clientRequests.init();
@@ -46,8 +72,9 @@ public class ExchangeApplication {
         matchingEngine.start();
         orderServer.start();
         log.info("Trading Exchange Application Started");
+    }
 
-        new ShutdownSignalBarrier().await();
+    private synchronized void shutdown() {
         snapshotPublisher.close();
         clientRequests.shutdown();
         clientResponses.shutdown();

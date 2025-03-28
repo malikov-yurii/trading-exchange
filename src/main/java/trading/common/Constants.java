@@ -19,7 +19,7 @@ public final class Constants {
     public static final long QTY_INVALID = -1;
     public static final long PRIORITY_INVALID = -1;
 
-    public static final double DEFAULT_MAX_ORDER_QTY_LIMIT = 10;
+    public static final double DEFAULT_MAX_ORDER_QTY_LIMIT = 100;
 
     private Constants() {
     }

@@ -15,6 +15,7 @@ public class MarketMaker implements TradingAlgo {
     private final TradeEngineConfigMap tickerConfigMap;
 
     public MarketMaker(FeatureEngine featureEngine, OrderManager orderManager, TradeEngineConfigMap tickerConfigMap) {
+        log.info("TradingAlgo. Init.");
         this.featureEngine = featureEngine;
         this.orderManager = orderManager;
         this.tickerConfigMap = tickerConfigMap;
@@ -22,7 +23,7 @@ public class MarketMaker implements TradingAlgo {
 
     @Override
     public void onOrderBookUpdate(long tickerId, long price, Side side, MarketOrderBook marketOrderBook) {
-        log.info("MarketMaker received order book update: tickerId={}, price={}, side={}", tickerId, price, side);
+//        log.info("MarketMaker received order book update: tickerId={}, price={}, side={}", tickerId, price, side);
         MarketOrderBook.BBO bbo = marketOrderBook.getBBO();
         double fairPrice = featureEngine.getMarketPrice();
 
@@ -43,12 +44,12 @@ public class MarketMaker implements TradingAlgo {
 
     @Override
     public void onTradeUpdate(MarketUpdate marketUpdate, MarketOrderBook marketOrderBook) {
-        log.info("MarketMaker received trade update: {}", marketUpdate);
+//        log.info("MarketMaker received trade update: {}", marketUpdate);
     }
 
     @Override
     public void onOrderUpdate(OrderMessage orderMessage) {
-        log.info("onOrderUpdate. {}", orderMessage);
+//        log.info("onOrderUpdate. {}", orderMessage);
         orderManager.onOrderMessage(orderMessage);
     }
 

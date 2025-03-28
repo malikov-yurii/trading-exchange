@@ -55,8 +55,10 @@ public class TradeEngine {
             this.algo = new MarketMaker(featureEngine, orderManager, tradeEngineConfigMap);
         } else if (algoType == AlgoType.LIQUIDITY_TAKER) {
             this.algo = new LiquidityTaker(featureEngine, orderManager, tradeEngineConfigMap);
+        } else if (algoType == AlgoType.RANDOM) {
+            this.algo = new RandomOrderSender(this);
         } else {
-            this.algo = getDefaultAlgo();
+            throw new IllegalArgumentException("Unknown strategy type: " + algoType);
         }
     }
 
@@ -71,7 +73,7 @@ public class TradeEngine {
 
     public void onTradeEngineUpdate(TradeEngineUpdate tradeEngineUpdate) {
         try {
-//            log.info("onTradeEngineUpdate. {}", tradeEngineUpdate);
+            log.info("onTradeEngineUpdate. {}", tradeEngineUpdate);
             if (tradeEngineUpdate.getMarketUpdate() != null) {
                 onMarketUpdate(tradeEngineUpdate.getMarketUpdate());
             } else if (tradeEngineUpdate.getOrderMessage() != null) {
@@ -116,23 +118,12 @@ public class TradeEngine {
         return LocalDateTime.ofInstant(Instant.ofEpochMilli(lastUpdateTime.get()), ZoneId.systemDefault());
     }
 
-    private static TradingAlgo getDefaultAlgo() {
-        return new TradingAlgo() {
-            @Override
-            public void onOrderBookUpdate(long tickerId, long price, Side side, MarketOrderBook marketOrderBook) {
-                log.info("onOrderBookUpdate. tickerId: {}, price: {}, side: {}", tickerId, price, side);
-            }
+    public void init() {
+        algo.init();
+    }
 
-            @Override
-            public void onTradeUpdate(MarketUpdate marketUpdate, MarketOrderBook marketOrderBook) {
-                log.info("onTradeUpdate. marketUpdate: {}", marketUpdate);
-            }
-
-            @Override
-            public void onOrderUpdate(OrderMessage orderMessage) {
-                log.info("onOrderUpdate. orderMessage: {}", orderMessage);
-            }
-        };
+    public void shutdown() {
+        algo.shutdown();
     }
 
 }

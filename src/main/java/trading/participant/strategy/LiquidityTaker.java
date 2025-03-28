@@ -15,6 +15,7 @@ public class LiquidityTaker implements TradingAlgo {
     private final TradeEngineConfigMap tickerConfigMap;
 
     public LiquidityTaker(FeatureEngine featureEngine, OrderManager orderManager, TradeEngineConfigMap tickerConfigMap) {
+        log.info("TradingAlgo. Init.");
         this.featureEngine = featureEngine;
         this.orderManager = orderManager;
         this.tickerConfigMap = tickerConfigMap;

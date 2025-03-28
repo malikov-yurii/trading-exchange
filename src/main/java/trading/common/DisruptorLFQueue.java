@@ -48,14 +48,13 @@ public class DisruptorLFQueue<T> implements LFQueue<T> {
         );
         ringBuffer = disruptor.getRingBuffer();
         this.name = name;
-        log.info("DisruptorLFQueue {} created with bufferSize {}", name, bufferSize);
+//        log.info("DisruptorLFQueue {} created with bufferSize {}", name, bufferSize);
     }
 
     @Override
     public void init() {
-        log.info("init. Starting [{}]", name);
         disruptor.start();
-        log.info("init. Started [{}]", name);
+//        log.info("init. Started [{}]", name);
     }
 
     @Override

@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 
-# Build the trading exchange image
-docker build -t trading-exchange:0.1.0 -f Dockerfile.exchange .
+set -e
 
-# Build the trading participant image
-docker build -t trading-participant:0.1.0 -f Dockerfile.participant .
+mvn clean package
+
+#docker build --platform=linux/amd64 -t trading-exchange:0.1.0 -f exchange.Dockerfile .
+docker build -t trading-exchange:0.1.0 -f exchange.Dockerfile .
+
+#docker build --platform=linux/amd64 -t trading-participant:0.1.0 -f participant.Dockerfile .
+docker build -t trading-participant:0.1.0 -f participant.Dockerfile .
 

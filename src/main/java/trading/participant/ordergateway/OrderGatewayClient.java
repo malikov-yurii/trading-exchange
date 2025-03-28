@@ -60,13 +60,14 @@ public class OrderGatewayClient {
     private Channel channel;
 
     public OrderGatewayClient(String serverUri, LFQueue<OrderRequest> orderRequests, LFQueue<TradeEngineUpdate> tradeEngineUpdates) {
+        log.info("Creating OrderGatewayClient for serverUri: {}", serverUri);
         this.serverUri = serverUri;
         this.tradeEngineUpdates = tradeEngineUpdates;
         orderRequests.subscribe(this::sendOrderRequest);
     }
 
     public void sendOrderRequest(OrderRequest orderRequest) {
-        log.info("Submitting order request: {}", orderRequest);
+//        log.info("Submitting {}", orderRequest);
         long clientId = orderRequest.getClientId();
         int side = orderRequest.getSide().ordinal();
         long price = orderRequest.getPrice();
@@ -80,6 +81,7 @@ public class OrderGatewayClient {
         }
 
         long seq = orderSeqNum.getAndIncrement();
+        orderRequest.setSeqNum(seq);
 
         ExpandableDirectByteBuffer buffer = new ExpandableDirectByteBuffer(128); // Ensure enough capacity
         int offset = 0;
@@ -118,7 +120,7 @@ public class OrderGatewayClient {
 
         channel.writeAndFlush(frame);
 
-        log.info("Sent order request : {} : {}", requestType, orderRequest);
+        log.info("--------------> Sent {}", orderRequest);
     }
 
     public void start() throws Exception {
@@ -144,6 +146,7 @@ public class OrderGatewayClient {
                     protected void initChannel(Channel ch) {
                         ChannelPipeline pipeline = ch.pipeline();
                         if (sslCtx != null) {
+
                             pipeline.addLast(sslCtx.newHandler(ch.alloc(), host, port));
                         }
                         pipeline.addLast(new HttpClientCodec());
@@ -155,7 +158,7 @@ public class OrderGatewayClient {
         channel = b.connect(host, port).sync().channel();
         handler.handshakeFuture().sync(); // Wait for handshake
 
-        log.info("Connected to server, handshake complete. Now sending orders...");
+        log.info("Connected to server host: {} port {}, handshake complete. Now sending orders...", host, port);
     }
 
     private void onOrderMessage(OrderMessage orderMessage) {

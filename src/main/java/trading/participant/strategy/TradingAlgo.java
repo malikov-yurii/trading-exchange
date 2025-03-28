@@ -9,5 +9,7 @@ public interface TradingAlgo {
     void onOrderBookUpdate(long tickerId, long price, Side side, MarketOrderBook marketOrderBook);
     void onTradeUpdate(MarketUpdate marketUpdate, MarketOrderBook marketOrderBook);
     void onOrderUpdate(OrderMessage orderMessage);
+    default void init() {};
+    default void shutdown() {}
 
 }

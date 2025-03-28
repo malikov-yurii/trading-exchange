@@ -83,7 +83,7 @@ public class OrderManager {
     }
 
     public void moveOrders(long tickerId, long bidPrice, long askPrice, long qty) {
-        log.info("moveOrders. tickerId={}, bidPrice={}, askPrice={}, qty={}", tickerId, bidPrice, askPrice, qty);
+        log.info("moveOrders. tickerId={}: {} @ bid={} ask={}", tickerId, qty, bidPrice, askPrice);
         Order bidOrder = tickerOrderSideMap.getOrder(tickerId, Side.BUY);
         Order askOrder = tickerOrderSideMap.getOrder(tickerId, Side.SELL);
 
@@ -92,6 +92,7 @@ public class OrderManager {
     }
 
     private void newOrder(Order order, long tickerId, long price, Side side, long qty) {
+        log.info("newOrder. tickerId: {}, {} {}@{}", tickerId, side, qty, price);
         OrderRequest orderRequest = new OrderRequest();
         orderRequest.setType(OrderRequestType.NEW);
         orderRequest.setClientId(tradeEngine.getClientId());
