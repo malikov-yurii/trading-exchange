@@ -37,7 +37,6 @@ public class MarketDataSnapshotPublisher {
     private final Aeron aeron;
     private final Publication snapshotPublication;
 
-    // We publish snapshot every 60s in background
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(
             r -> new Thread(r, "md-snap-publisher")
     );
@@ -222,6 +221,9 @@ public class MarketDataSnapshotPublisher {
             result = snapshotPublication.offer(buffer, 0, offset);
             if (result < 0) {
                 if (result == Publication.NOT_CONNECTED || result == Publication.BACK_PRESSURED) {
+                    if (log.isDebugEnabled()) {
+                        log.debug("Publication back pressure or not connected: {}", result);
+                    }
                     Thread.yield();
                 } else {
                     log.warn("Publication error: {} for marketUpdate {}", result, mu);

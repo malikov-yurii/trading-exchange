@@ -67,7 +67,9 @@ public class TradeEngine {
     }
 
     public void sendOrderRequest(OrderRequest orderRequest) {
-        log.info("sendOrderRequest. {}", orderRequest);
+        if (log.isDebugEnabled()) {
+            log.debug("sendOrderRequest. {}", orderRequest);
+        }
         orderRequestQueue.offer(orderRequest);
     }
 

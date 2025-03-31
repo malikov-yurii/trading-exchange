@@ -93,6 +93,9 @@ public class MarketDataPublisher {
             result = publication.offer(buffer, 0, offset);
             if (result < 0) {
                 if (result == Publication.BACK_PRESSURED || result == Publication.NOT_CONNECTED) {
+                    if (log.isDebugEnabled()) {
+                        log.debug("Publication back pressure or not connected: {}", result);
+                    }
                     // We can busy-wait or sleep briefly
                     Thread.yield();
                 } else {

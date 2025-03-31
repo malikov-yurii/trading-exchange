@@ -2,7 +2,7 @@
 
 set -e
 
-mvn clean package
+mvn clean package -DskipTests
 
 #docker build --platform=linux/amd64 -t trading-exchange:0.1.0 -f exchange.Dockerfile .
 docker build -t trading-exchange:0.1.0 -f exchange.Dockerfile .

@@ -37,8 +37,9 @@ public class ParticipantApplication {
         LFQueue<OrderRequest> orderRequests = new DisruptorLFQueue<>(1024, "orderRequests", ProducerType.MULTI);
 
 //        String orderServerUri = env("ORDER_SERVER_URI", "ws://localhost:8080/ws");
-        String orderServerUri = env("ORDER_SERVER_URI", null);
-        OrderGatewayClient orderGatewayClient = new OrderGatewayClient(orderServerUri, orderRequests, tradeEngineUpdates);
+        String primaryOrderServerUri = env("ORDER_SERVER_1_URI", null);
+        String backupOrderServerUri = env("ORDER_SERVER_2_URI", null);
+        OrderGatewayClient orderGatewayClient = new OrderGatewayClient(primaryOrderServerUri, backupOrderServerUri, orderRequests, tradeEngineUpdates);
         orderGatewayClient.start();
 
 

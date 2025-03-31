@@ -68,7 +68,7 @@ public class OrderServer implements Application {
             try {
                 containers = BablServer.launch(config);
                 containers.start();
-                log.info("BablOrderServer started. PerformanceMode={}", perfMode);
+                log.info("BablOrderServer started. PerformanceMode=[{}]. [{}:{}]", perfMode, bindAddress, listenPort);
                 new ShutdownSignalBarrier().await();
             } catch (Exception e) {
                 log.error("Error in BablOrderServer thread", e);
@@ -197,18 +197,6 @@ public class OrderServer implements Application {
         log.info("Sent response {}. {}", orderMessage, sendResult == 0 ? "OK" : "FAILED");
     }
 
-    /**
-     * Convert the buffer to a hex string for debugging
-     */
-    private String hexDump(DirectBuffer buffer, int offset, int length) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < length; i++) {
-            byte b = buffer.getByte(offset + i);
-            sb.append(String.format("%02X ", b));
-        }
-        return sb.toString();
-    }
-
     private OrderRequest deserializeClientRequest(final DirectBuffer data, int offset, int length) {
         OrderRequest req = new OrderRequest();
 
@@ -217,7 +205,9 @@ public class OrderServer implements Application {
         offset += Byte.BYTES;
         OrderRequestType type = OrderRequestType.fromValue(requestType);
         req.setType(type);
-        log.info("deserializeClientRequest. requestType={}, type={}", requestType, type);
+        if (log.isDebugEnabled()) {
+            log.debug("deserializeClientRequest. requestType={}, type={}", requestType, type);
+        }
 
         // Read sequence number (8 bytes)
         long seq = data.getLong(offset);

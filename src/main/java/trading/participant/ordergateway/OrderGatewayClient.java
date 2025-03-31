@@ -1,9 +1,5 @@
 package trading.participant.ordergateway;
 
-import trading.api.OrderMessage;
-import trading.api.OrderMessageType;
-import trading.api.OrderRequest;
-import trading.api.Side;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.PooledByteBufAllocator;
@@ -31,9 +27,12 @@ import io.netty.handler.codec.http.websocketx.WebSocketClientHandshakerFactory;
 import io.netty.handler.codec.http.websocketx.WebSocketVersion;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
-import org.agrona.ExpandableDirectByteBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import trading.api.OrderMessage;
+import trading.api.OrderMessageSerDe;
+import trading.api.OrderRequest;
+import trading.api.OrderRequestSerDe;
 import trading.common.LFQueue;
 import trading.participant.strategy.TradeEngineUpdate;
 
@@ -42,162 +41,214 @@ import java.net.URI;
 import java.nio.ByteOrder;
 import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * A minimal Netty-based WebSocket client that:
- *  - Connects to ws://localhost:8080/ws by default
- *  - Sends N (default 2) buy orders and N sell orders
- *  - Logs requests and responses (including server's OrderMessage)
- *  - Waits for a shutdown signal
- *  - Catches and logs exceptions in parseOrderMessage or channelRead0
- */
 public class OrderGatewayClient {
+
     private static final Logger log = LoggerFactory.getLogger(OrderGatewayClient.class);
-    private final String serverUri;
-    private final AtomicLong orderSeqNum = new AtomicLong(1);
+
+    private final String primaryServerUri;
+    private final String backupServerUri;
     private final LFQueue<TradeEngineUpdate> tradeEngineUpdates;
+
+    private volatile String currentConnectionServer = null;
 
     private EventLoopGroup group;
     private Channel channel;
 
-    public OrderGatewayClient(String serverUri, LFQueue<OrderRequest> orderRequests, LFQueue<TradeEngineUpdate> tradeEngineUpdates) {
-        log.info("Creating OrderGatewayClient for serverUri: {}", serverUri);
-        this.serverUri = serverUri;
+    private final AtomicLong orderSeqNum = new AtomicLong(1);
+    private volatile boolean connecting = false;
+
+    public OrderGatewayClient(
+            String primaryServerUri,
+            String backupServerUri,
+            LFQueue<OrderRequest> orderRequests,
+            LFQueue<TradeEngineUpdate> tradeEngineUpdates) {
+
+        log.info("Creating OrderGatewayClient. primary={}, backup={}", primaryServerUri, backupServerUri);
+        this.primaryServerUri = primaryServerUri;
+        this.backupServerUri = backupServerUri;
         this.tradeEngineUpdates = tradeEngineUpdates;
-        orderRequests.subscribe(this::sendOrderRequest);
+        orderRequests.subscribe(this::doSendOrderRequest);
     }
 
-    public void sendOrderRequest(OrderRequest orderRequest) {
-//        log.info("Submitting {}", orderRequest);
-        long clientId = orderRequest.getClientId();
-        int side = orderRequest.getSide().ordinal();
-        long price = orderRequest.getPrice();
-        long qty = orderRequest.getQty();
-        int tickerId = (int) orderRequest.getTickerId();
-        byte requestType = orderRequest.getType().getValue();
+    private void doSendOrderRequest(OrderRequest orderRequest) {
+        waitActiveChannel();
+        try {
+            long seq = orderSeqNum.getAndIncrement();
+            orderRequest.setSeqNum(seq);
 
-        if (channel == null || !channel.isActive()) {
-            log.error("Channel is not active, cannot send order!");
+            byte[] data = OrderRequestSerDe.serialize(orderRequest);
+            ByteBuf nettyBuf = channel.alloc().buffer(data.length);
+            nettyBuf.writeBytes(data);
+
+            BinaryWebSocketFrame frame = new BinaryWebSocketFrame(nettyBuf);
+            ChannelFuture channelFuture = channel.writeAndFlush(frame);
+            log.info("Sent orderRequest seq={} ticker={} side={} to {}", seq, orderRequest.getTickerId(),
+                    orderRequest.getSide(), currentConnectionServer);
+        } catch (Exception e) {
+            log.error("Failed to send orderRequest", e);
+        }
+    }
+
+    private void waitActiveChannel() {
+        while (channel == null || !channel.isActive()) {
+            try {
+                log.info("Waiting 1s for active channel...");
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                // Ignore
+            }
+        }
+    }
+
+    public synchronized void start() {
+        if (group != null) {
+            log.warn("Already started? skipping...");
             return;
         }
 
-        long seq = orderSeqNum.getAndIncrement();
-        orderRequest.setSeqNum(seq);
-
-        ExpandableDirectByteBuffer buffer = new ExpandableDirectByteBuffer(128); // Ensure enough capacity
-        int offset = 0;
-
-        buffer.putByte(offset, requestType);
-        offset += Byte.BYTES;
-
-        buffer.putLong(offset, seq);
-        offset += Long.BYTES;
-
-        buffer.putByte(offset, (byte) side);
-        offset += Byte.BYTES;
-
-        buffer.putLong(offset, clientId);
-        offset += Long.BYTES;
-
-        buffer.putLong(offset, tickerId); // tickerId
-        offset += Long.BYTES;
-
-        buffer.putLong(offset, orderRequest.getOrderId()); // orderId
-        offset += Long.BYTES;
-
-        buffer.putLong(offset, price);
-        offset += Long.BYTES;
-
-        buffer.putLong(offset, qty);
-        offset += Long.BYTES;
-
-        byte[] data = new byte[offset];
-        buffer.getBytes(0, data);
-
-        ByteBuf nettyBuf = channel.alloc().buffer(offset);
-        nettyBuf.writeBytes(data);
-
-        BinaryWebSocketFrame frame = new BinaryWebSocketFrame(nettyBuf);
-
-        channel.writeAndFlush(frame);
-
-        log.info("--------------> Sent {}", orderRequest);
-    }
-
-    public void start() throws Exception {
-        log.info("Starting OrderGatewayClient [{}]", serverUri);
-
         group = new NioEventLoopGroup(1);
-        final URI uri = new URI(serverUri);
-        final String scheme = (uri.getScheme() == null) ? "ws" : uri.getScheme();
-        final String host = (uri.getHost() == null) ? "127.0.0.1" : uri.getHost();
-        final int port = getPort(uri, scheme);
+        connectPreferPrimary();
+    }
 
-        final boolean ssl = "wss".equalsIgnoreCase(scheme);
-        final SslContext sslCtx = ssl ? buildSslContext() : null;
+    private synchronized void connectPreferPrimary() {
+        if (currentConnectionServer != null && channel != null && channel.isActive()) {
+            return;
+        }
 
-        WebSocketClientHandler handler = new WebSocketClientHandler(uri);
+        if (tryConnect(primaryServerUri)) {
+            currentConnectionServer = primaryServerUri;
+            return;
+        }
 
-        Bootstrap b = new Bootstrap();
-        b.group(group)
-                .channel(NioSocketChannel.class)
-                .option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT)
-                .handler(new ChannelInitializer<Channel>() {
-                    @Override
-                    protected void initChannel(Channel ch) {
-                        ChannelPipeline pipeline = ch.pipeline();
-                        if (sslCtx != null) {
+        if (tryConnect(backupServerUri)) {
+            currentConnectionServer = backupServerUri;
+            return;
+        }
 
-                            pipeline.addLast(sslCtx.newHandler(ch.alloc(), host, port));
+        currentConnectionServer = null;
+
+        log.warn("Both primary and backup failed. Will retry in 2 seconds...");
+        try {
+            Thread.sleep(2000);
+        } catch (InterruptedException e) {
+            // Ignore
+        }
+        connectPreferPrimary();
+    }
+
+    /**
+     * Attempt a connect to 'serverUri'. Returns true if success, else false.
+     */
+    private synchronized boolean tryConnect(String serverUri) {
+        try {
+            if (connecting) {
+                log.warn("Already connecting. Skipping...");
+                return false;
+            }
+            connecting = true;
+            Channel oldChannel = channel;
+            channel = null;
+            if (oldChannel != null && oldChannel.isActive()) {
+                oldChannel.close().sync();
+            }
+
+            URI uri = new URI(serverUri);
+            boolean ssl = "wss".equalsIgnoreCase(uri.getScheme());
+            SslContext sslCtx = ssl ? buildSslContext() : null;
+
+            WebSocketClientHandler handler = new WebSocketClientHandler(uri, serverUri);
+            Bootstrap b = new Bootstrap()
+                    .group(group)
+                    .channel(NioSocketChannel.class)
+                    .option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT)
+                    .handler(new ChannelInitializer<Channel>() {
+                        @Override
+                        protected void initChannel(Channel ch) {
+                            ChannelPipeline pipeline = ch.pipeline();
+                            if (sslCtx != null) {
+                                String host = uri.getHost() == null ? "127.0.0.1" : uri.getHost();
+                                int port = getPort(uri);
+                                pipeline.addLast(sslCtx.newHandler(ch.alloc(), host, port));
+                            }
+                            pipeline.addLast(new HttpClientCodec());
+                            pipeline.addLast(new HttpObjectAggregator(8192));
+                            pipeline.addLast(handler);
                         }
-                        pipeline.addLast(new HttpClientCodec());
-                        pipeline.addLast(new HttpObjectAggregator(8192));
-                        pipeline.addLast(handler);
-                    }
-                });
+                    });
 
-        channel = b.connect(host, port).sync().channel();
-        handler.handshakeFuture().sync(); // Wait for handshake
+            String host = uri.getHost() == null ? "127.0.0.1" : uri.getHost();
+            int port = getPort(uri);
+            log.info("Attempting connect to {} at {}:{}", serverUri, host, port);
 
-        log.info("Connected to server host: {} port {}, handshake complete. Now sending orders...", host, port);
+            ChannelFuture cf = b.connect(host, port);
+            cf.addListener(f -> { /* Have to use listeners to not block Netty main loop */
+                if (f.isSuccess()) {
+                    handler.handshakeFuture().addListener(f2 -> { /* Have to use listeners to not block Netty main loop */
+                        if (f2.isSuccess()) {
+                            log.info("Handshake complete for {}", serverUri);
+                            connecting = false;
+                            channel = cf.channel();
+                        } else {
+                            log.warn("Handshake failed for {} -> {}", serverUri, f2.cause().getMessage());
+                            connecting = false;
+                            tryConnectToAnotherServer(serverUri);
+                        }
+                    });
+                    log.info("Connected to {} at {}:{}", serverUri, host, port);
+                } else {
+                    log.warn("Failed to connect to {} -> {}", serverUri, f.cause().getMessage());
+                    connecting = false;
+                    tryConnectToAnotherServer(serverUri);
+                }
+            });
+            return true;
+        } catch (Exception e) {
+            log.warn("Failed to connect to {} -> {}", serverUri, e.getMessage());
+            connecting = false;
+            return false;
+        }
     }
 
-    private void onOrderMessage(OrderMessage orderMessage) {
-        log.info("Received {}", orderMessage);
-        tradeEngineUpdates.offer(new TradeEngineUpdate(null, orderMessage));
+    private void tryConnectToAnotherServer(String serverUri) {
+        String anotherServerUri = primaryServerUri.equals(serverUri) ? backupServerUri : primaryServerUri;
+        tryConnect(anotherServerUri);
     }
 
-    private int getPort(URI uri, String scheme) {
+    private int getPort(URI uri) {
         if (uri.getPort() != -1) {
             return uri.getPort();
         }
-        return ("wss".equalsIgnoreCase(scheme)) ? 443 : 80;
+        return "wss".equalsIgnoreCase(uri.getScheme()) ? 443 : 80;
     }
 
     private SslContext buildSslContext() throws SSLException {
         return SslContextBuilder.forClient().build();
     }
 
-    public void shutdown() {
-        log.info("Shutting down ParticipantApplication...");
+    public synchronized void shutdown() {
         if (channel != null) {
-            channel.close();
+            try {
+                channel.close().sync();
+            } catch (InterruptedException e) {
+                log.warn("Interrupted closing channel", e);
+            }
         }
         if (group != null) {
             group.shutdownGracefully();
+            group = null;
         }
+        log.info("OrderGatewayClient fully shut down");
     }
 
-    /**
-     * A custom WebSocket client handler that performs the handshake, logs inbound frames, and
-     * catches exceptions that occur during parseOrderMessage or the decode pipeline.
-     */
     private class WebSocketClientHandler extends SimpleChannelInboundHandler<Object> {
         private final URI uri;
+        private final String targetServer;
         private ChannelPromise handshakeFuture;
         private WebSocketClientHandshaker handshaker;
 
-        WebSocketClientHandler(URI uri) {
+        WebSocketClientHandler(URI uri, String targetServer) {
             this.uri = uri;
+            this.targetServer = targetServer;
         }
 
         public ChannelFuture handshakeFuture() {
@@ -218,138 +269,52 @@ public class OrderGatewayClient {
 
         @Override
         public void channelInactive(ChannelHandlerContext ctx) {
-            log.info("WebSocket Client disconnected!");
+            log.info("channelInactive. We lost connection to {}", targetServer);
+            ctx.channel().eventLoop().submit(OrderGatewayClient.this::connectPreferPrimary);
         }
 
-        /**
-         * Top-level read method: catch exceptions from parse or other pipeline issues
-         */
         @Override
         protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
-            try {
-                handleMessage(ctx, msg);
-            } catch (Exception e) {
-                log.error("Error in channelRead0: {}", e.getMessage(), e);
-                // Optionally close the channel to prevent netty from logging a pipeline error
-                ctx.close();
-            }
-        }
-
-        private void handleMessage(ChannelHandlerContext ctx, Object msg) {
-            try {
-                Channel ch = ctx.channel();
-                if (!handshaker.isHandshakeComplete()) {
-                    handshaker.finishHandshake(ch, (FullHttpResponse) msg);
-                    log.info("WebSocket Client connected! Handshake complete.");
+            if (!handshaker.isHandshakeComplete()) {
+                try {
+                    handshaker.finishHandshake(ctx.channel(), (FullHttpResponse) msg);
+                    log.info("WebSocket handshake complete for {}", targetServer);
                     handshakeFuture.setSuccess();
-                    return;
+                } catch (Exception e) {
+                    log.error("Handshake failed for {} -> {}", targetServer, e.getMessage());
+                    handshakeFuture.setFailure(e);
                 }
+                return;
+            }
 
-                if (msg instanceof FullHttpResponse) {
-                    FullHttpResponse response = (FullHttpResponse) msg;
-                    throw new IllegalStateException("Unexpected FullHttpResponse: " + response.status());
-                }
-
-                if (msg instanceof TextWebSocketFrame) {
-                    TextWebSocketFrame textFrame = (TextWebSocketFrame) msg;
-                    log.info("Received Text frame: {}", textFrame.text());
-                } else if (msg instanceof BinaryWebSocketFrame) {
-                    BinaryWebSocketFrame binFrame = (BinaryWebSocketFrame) msg;
-                    ByteBuf content = binFrame.content();
-                    // Force little-endian order to match server's output
-                    ByteBuf leBuf = content.order(ByteOrder.LITTLE_ENDIAN);
-                    OrderMessage exchangeResponse = parseOrderMessage(leBuf);
-                    onOrderMessage(exchangeResponse);
-                } else if (msg instanceof PongWebSocketFrame) {
-                    log.info("Received Pong frame");
-                } else if (msg instanceof CloseWebSocketFrame) {
-                    log.info("Received Close frame");
-                    ch.close();
-                }
-            } catch (Exception e) {
-                log.error("Error processing message: {}", e.getMessage(), e);
+            if (msg instanceof FullHttpResponse) {
+                FullHttpResponse response = (FullHttpResponse) msg;
+                throw new IllegalStateException("Unexpected FullHttpResponse: " + response.status());
+            } else if (msg instanceof TextWebSocketFrame) {
+                TextWebSocketFrame textFrame = (TextWebSocketFrame) msg;
+                log.info("Received Text frame from {}: {}", targetServer, textFrame.text());
+            } else if (msg instanceof BinaryWebSocketFrame) {
+                BinaryWebSocketFrame binFrame = (BinaryWebSocketFrame) msg;
+                ByteBuf content = binFrame.content();
+                ByteBuf leBuf = content.order(ByteOrder.LITTLE_ENDIAN); // match server endianness
+                OrderMessage orderMsg = OrderMessageSerDe.parseOrderMessage(leBuf);
+                onOrderMessage(orderMsg);
+            } else if (msg instanceof PongWebSocketFrame) {
+                log.info("Received Pong from {}", targetServer);
+            } else if (msg instanceof CloseWebSocketFrame) {
+                log.info("Received Close from {}", targetServer);
+                ctx.channel().close();
             }
         }
 
-        /**
-         * OrderMessage format from server (little-endian):
-         *  - 8 bytes: seqNum
-         *  - 1 byte: type ordinal
-         *  - 1 byte: side ordinal
-         *  - 8 bytes: clientId
-         *  - 8 bytes: tickerId
-         *  - 8 bytes: clientOrderId
-         *  - 8 bytes: marketOrderId
-         *  - 8 bytes: price
-         *  - 8 bytes: execQty
-         *  - 8 bytes: leavesQty
-         */
-        private OrderMessage parseOrderMessage(ByteBuf buf) {
-            try {
-                int offset = buf.readerIndex();
-
-                long seqNum = buf.getLong(offset);
-                offset += Long.BYTES;
-                byte typeOrd = buf.getByte(offset++);
-                OrderMessageType type = fromTypeOrd(typeOrd);
-                byte sideOrd = buf.getByte(offset++);
-                Side side = fromSideOrd(sideOrd);
-
-                long clientId = buf.getLong(offset);
-                offset += Long.BYTES;
-                long tickerId = buf.getLong(offset);
-                offset += Long.BYTES;
-                long clientOrderId = buf.getLong(offset);
-                offset += Long.BYTES;
-                long marketOrderId = buf.getLong(offset);
-                offset += Long.BYTES;
-                long price = buf.getLong(offset);
-                offset += Long.BYTES;
-                long execQty = buf.getLong(offset);
-                offset += Long.BYTES;
-                long leavesQty = buf.getLong(offset);
-                offset += Long.BYTES;
-
-                OrderMessage resp = new OrderMessage();
-                resp.setSeqNum(seqNum);
-                resp.setType(type);
-                resp.setSide(side);
-                resp.setClientId(clientId);
-                resp.setTickerId(tickerId);
-                resp.setClientOrderId(clientOrderId);
-                resp.setMarketOrderId(marketOrderId);
-                resp.setPrice(price);
-                resp.setExecQty(execQty);
-                resp.setLeavesQty(leavesQty);
-
-                return resp;
-            } catch (Exception e) {
-                log.error("Error parsing OrderMessage", e);
-                // Optionally rethrow or return a partial object
-                throw e;
-            }
-        }
-
-        private OrderMessageType fromTypeOrd(byte ord) {
-            OrderMessageType[] values = OrderMessageType.values();
-            if (ord < 0 || ord >= values.length) {
-                return OrderMessageType.INVALID;
-            }
-            return values[ord];
-        }
-
-        private Side fromSideOrd(byte ord) {
-            Side[] sides = Side.values();
-            if (ord < 0 || ord >= sides.length) {
-                return Side.INVALID;
-            }
-            return sides[ord];
+        private void onOrderMessage(OrderMessage orderMessage) {
+            log.info("Received {}", orderMessage);
+            tradeEngineUpdates.offer(new TradeEngineUpdate(null, orderMessage));
         }
 
         @Override
         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-            log.error("exceptionCaught in pipeline: {}", cause.getMessage(), cause);
-            // Typically close on pipeline error
+            log.error("exceptionCaught in pipeline for {} -> {}", targetServer, cause.getMessage());
             ctx.close();
         }
     }

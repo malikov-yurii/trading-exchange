@@ -35,18 +35,23 @@ public class ExchangeApplication {
         ZooKeeperLeadershipManager leadershipManager = new ZooKeeperLeadershipManager();
 
         leadershipManager.onLeadershipAcquired(() -> {
-            log.info("Leadership acquired. Starting the exchange application");
+            log.info("onLeadershipAcquired. Starting the exchange");
             exchangeApplication.startExchange();
+        });
+
+        leadershipManager.onLeadershipLost(() -> {
+            log.info("onLeadershipLost. Shutting down the exchange");
+            exchangeApplication.shutdownExchange();
         });
 
         leadershipManager.start();
 
         new ShutdownSignalBarrier().await();
-        exchangeApplication.shutdown();
+        exchangeApplication.shutdownExchange();
     }
 
     private synchronized void startExchange() {
-        log.info("Trading Exchange Application Starting...");
+        log.info("startExchange. Starting.");
         clientRequests = new DisruptorLFQueue<>(1024, "clientRequests", ProducerType.SINGLE);
         clientResponses = new DisruptorLFQueue<>(1024, "clientResponses", ProducerType.SINGLE);
         marketUpdates = new DisruptorLFQueue<>(1024, "marketUpdates", ProducerType.SINGLE);
@@ -71,10 +76,10 @@ public class ExchangeApplication {
 
         matchingEngine.start();
         orderServer.start();
-        log.info("Trading Exchange Application Started");
+        log.info("startExchange. Started.");
     }
 
-    private synchronized void shutdown() {
+    private synchronized void shutdownExchange() {
         snapshotPublisher.close();
         clientRequests.shutdown();
         clientResponses.shutdown();

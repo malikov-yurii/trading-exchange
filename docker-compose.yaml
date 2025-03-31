@@ -16,43 +16,52 @@ services:
     environment:
       - INSTANCE_ID=1
       - WS_IP=0.0.0.0
-      - WS_PORT=8080
+      - WS_PORT=8091
       - MD_IP=224.0.1.1
       - MD_PORT=40456
       - MD_SNAPSHOT_PORT=40457
-    ports:
-      - "8080:8080"
-      - "40456:40456/udp"
-      - "40457:40457/udp"
+      - BABL_PERFORMANCE_MODE=LOW
     shm_size: "512m"
     network_mode: "host"  # for multicast support
-#    depends_on:
-#      zookeeper:
-#        condition: service_started
-#    entrypoint: ["/bin/sh", "-c", "sleep 5 && java --add-opens=java.base/sun.nio.ch=ALL-UNNAMED -jar /app/trading-exchange.jar"]
 
-#  trader-R:
-#    container_name: trader-R
+  exchange-2:
+    container_name: exchange-2
+    image: trading-exchange:0.1.0
+    environment:
+      - INSTANCE_ID=2
+      - WS_IP=0.0.0.0
+      - WS_PORT=8092
+      - MD_IP=224.0.1.1
+      - MD_PORT=40456
+      - MD_SNAPSHOT_PORT=40457
+      - BABL_PERFORMANCE_MODE=LOW
+    shm_size: "512m"
+    network_mode: "host"  # for multicast support
+
+  trader-R:
+    container_name: trader-R
+    image: trading-participant:0.1.0
+    environment:
+      - CLIENT_ID=1
+      - ALGO_TYPE=RANDOM
+      - "ORDER_SERVER_1_URI=ws://localhost:8091/ws"
+      - "ORDER_SERVER_2_URI=ws://localhost:8092/ws"
+    shm_size: "512m"
+    network_mode: "host"
+    depends_on:
+      - exchange-1
+    entrypoint: ["/bin/sh", "-c", "sleep 10 && java --add-opens=java.base/sun.nio.ch=ALL-UNNAMED -jar /app/trading-participant.jar"]
+
+#  trader-M:
+#    container_name: trader-M
 #    image: trading-participant:0.1.0
 #    environment:
 #      - CLIENT_ID=2
-#      - ALGO_TYPE=RANDOM
-#      - "ORDER_SERVER_URI=ws://localhost:8080/ws"
+#      - ALGO_TYPE=MARKET_MAKER
+#      - "ORDER_SERVER_URI=ws://localhost:8091/ws"
 #    shm_size: "512m"
 #    network_mode: "host"
 #    depends_on:
 #      - exchange-1
 #    entrypoint: ["/bin/sh", "-c", "sleep 10 && java --add-opens=java.base/sun.nio.ch=ALL-UNNAMED -jar /app/trading-participant.jar"]
 
-#  trader-M:
-#    container_name: trader-M
-#    image: trading-participant:0.1.0
-#    environment:
-#      - CLIENT_ID=1
-#      - ALGO_TYPE=MARKET_MAKER
-#    shm_size: "512m"
-#    network_mode: "host"
-#    depends_on:
-#      - exchange-1
-#    entrypoint: ["/bin/sh", "-c", "sleep 3 && java -jar /app/trading-participant.jar"]
-#

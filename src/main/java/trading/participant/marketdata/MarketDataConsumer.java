@@ -1,5 +1,8 @@
 package trading.participant.marketdata;
 
+import org.agrona.concurrent.IdleStrategy;
+import org.agrona.concurrent.SleepingIdleStrategy;
+import org.agrona.concurrent.SleepingMillisIdleStrategy;
 import trading.api.MarketUpdate;
 import trading.api.MarketUpdateType;
 import trading.api.Side;
@@ -16,6 +19,8 @@ import trading.participant.strategy.TradeEngineUpdate;
 
 import java.nio.ByteOrder;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import static trading.common.Utils.env;
 
 public class MarketDataConsumer implements Runnable {
     private static final Logger log = LoggerFactory.getLogger(MarketDataConsumer.class);
@@ -49,8 +54,17 @@ public class MarketDataConsumer implements Runnable {
     @Override
     public void run() {
         log.info("MarketDataConsumer starting");
-        // Simple busy-spin
-        BusySpinIdleStrategy idle = new BusySpinIdleStrategy();
+
+        IdleStrategy idle;
+        String mdPerfMode = env("MD_WAIT_STRATEGY", "SLEEPING_WAIT");
+        if ("SLEEPING_WAIT".equals(mdPerfMode)) {
+            int sleepPeriodMs = 10;
+            idle = new SleepingMillisIdleStrategy(sleepPeriodMs);
+            log.info("Using SleepingMillisIdleStrategy. sleepPeriodMs={}", sleepPeriodMs);
+        } else {
+            idle = new BusySpinIdleStrategy();
+        }
+
         FragmentHandler fragmentHandler = (buffer, offset, length, header) -> {
             processBuffer(buffer, offset, length);
         };
