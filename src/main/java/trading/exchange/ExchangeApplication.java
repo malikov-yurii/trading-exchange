@@ -1,8 +1,8 @@
 package trading.exchange;
 
 import com.lmax.disruptor.dsl.ProducerType;
-import org.apache.commons.lang3.ObjectUtils;
 import trading.common.Constants;
+import trading.common.Utils;
 import trading.exchange.marketdata.MarketDataPublisher;
 import trading.api.MarketUpdate;
 import trading.exchange.marketdata.MarketDataSnapshotPublisher;
@@ -55,14 +55,14 @@ public class ExchangeApplication {
         matchingEngine = new MatchingEngine(clientRequests, clientResponses, marketUpdates);
 
         orderServer = new OrderServer(clientRequests, clientResponses,
-                env("WS_IP", "0.0.0.0"),
-                Integer.valueOf(env("WS_PORT", "8080")));
+                Utils.env("WS_IP", "0.0.0.0"),
+                Integer.valueOf(Utils.env("WS_PORT", "8080")));
 
-        String mdIp = env("MD_IP", "224.0.1.1");
+        String mdIp = Utils.env("MD_IP", "224.0.1.1");
         marketDataPublisher = new MarketDataPublisher(marketUpdates, sequencedMarketUpdates,
-                "aeron:udp?endpoint=" + mdIp + ":" + env("MD_PORT", "40456"), 1001);
+                "aeron:udp?endpoint=" + mdIp + ":" + Utils.env("MD_PORT", "40456"), 1001);
         snapshotPublisher = new MarketDataSnapshotPublisher(sequencedMarketUpdates, Constants.ME_MAX_TICKERS,
-                "aeron:udp?endpoint=" + mdIp + ":" + env("MD_SNAPSHOT_PORT", "40457"), 2001);
+                "aeron:udp?endpoint=" + mdIp + ":" + Utils.env("MD_SNAPSHOT_PORT", "40457"), 2001);
 
         clientRequests.init();
         clientResponses.init();
@@ -82,10 +82,6 @@ public class ExchangeApplication {
         sequencedMarketUpdates.shutdown();
         log.info("Trading Exchange Application terminated");
         System.exit(0);
-    }
-
-    private static String env(String envVar, String defaultValue) {
-        return ObjectUtils.defaultIfNull(System.getenv(envVar), defaultValue);
     }
 
 }

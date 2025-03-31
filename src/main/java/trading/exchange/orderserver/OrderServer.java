@@ -24,6 +24,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static trading.common.Utils.env;
+
 /**
  * BablOrderServer that starts on a separate thread so that start() returns immediately.
  */
@@ -59,13 +61,14 @@ public class OrderServer implements Application {
         config.sessionContainerConfig().bindAddress(bindAddress);
         config.sessionContainerConfig().listenPort(listenPort);
         config.applicationConfig().application(this);
-        config.performanceConfig().performanceMode(PerformanceMode.DEVELOPMENT);
+        PerformanceMode perfMode = PerformanceMode.valueOf(env("BABL_PERFORMANCE_MODE", "DEVELOPMENT"));
+        config.performanceConfig().performanceMode(perfMode);
 
         serverThread = new Thread(() -> {
             try {
                 containers = BablServer.launch(config);
                 containers.start();
-                log.info("BablOrderServer started.");
+                log.info("BablOrderServer started. PerformanceMode={}", perfMode);
                 new ShutdownSignalBarrier().await();
             } catch (Exception e) {
                 log.error("Error in BablOrderServer thread", e);

@@ -1,9 +1,11 @@
 package trading.common;
 
+import com.lmax.disruptor.BlockingWaitStrategy;
 import com.lmax.disruptor.BusySpinWaitStrategy;
 import com.lmax.disruptor.EventFactory;
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.TimeoutException;
+import com.lmax.disruptor.WaitStrategy;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
 import org.slf4j.Logger;
@@ -12,6 +14,8 @@ import org.slf4j.LoggerFactory;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+
+import static trading.common.Utils.env;
 
 public class DisruptorLFQueue<T> implements LFQueue<T> {
 
@@ -38,13 +42,23 @@ public class DisruptorLFQueue<T> implements LFQueue<T> {
      * @param producerType
      */
     public DisruptorLFQueue(int bufferSize, String name, ProducerType producerType) {
+
+        WaitStrategy waitStrategy;
+        String env = env("DISRUPTOR_WAIT_STRATEGY", "BLOCKING_WAIT");
+        if ("BLOCKING_WAIT".equals(env)) {
+            log.info("Using BlockingWaitStrategy");
+            waitStrategy = new BlockingWaitStrategy();
+        } else { /* BUSY_SPIN */
+            waitStrategy = new BusySpinWaitStrategy();
+        }
+
         // Create the Disruptor with a single producer and a busy-spin wait strategy.
         disruptor = new Disruptor<>(
                 new EventFactoryImpl<>(),
                 bufferSize,
                 Executors.defaultThreadFactory(),
                 producerType,
-                new BusySpinWaitStrategy()
+                waitStrategy
         );
         ringBuffer = disruptor.getRingBuffer();
         this.name = name;
