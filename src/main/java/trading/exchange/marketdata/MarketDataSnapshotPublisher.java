@@ -1,41 +1,37 @@
 package trading.exchange.marketdata;
 
-import trading.api.MarketUpdate;
-import trading.api.MarketUpdateType;
-import trading.common.LFQueue;
-import io.aeron.Aeron;
-import io.aeron.Publication;
-import io.aeron.driver.MediaDriver;
 import org.agrona.ExpandableDirectByteBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import trading.api.MarketUpdate;
+import trading.api.MarketUpdateSerDe;
+import trading.api.MarketUpdateType;
+import trading.common.AeronPublisher;
+import trading.common.LFQueue;
+import trading.common.Utils;
+import trading.exchange.LeadershipManager;
 
-import java.nio.ByteOrder;
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
-/**
- * MarketDataSnapshotPublisher:
- * - Receives incremental updates from marketUpdateLFQueue (like MarketDataPublisher).
- * - Maintains an internal snapshot of orders by ticker.
- * - Every 60 secs, publishes a full snapshot to a separate Aeron channel (snapshotChannel, snapshotStreamId).
- */
 public class MarketDataSnapshotPublisher {
 
     private static final Logger log = LoggerFactory.getLogger(MarketDataSnapshotPublisher.class);
 
-    // For each tickerId, store a map of orderId -> MarketUpdate
     private final List<Map<Long, MarketUpdate>> tickerOrders;
 
-    // The last seq number we processed from incremental feed
     private long lastIncSeqNum = -1L;
 
-    // The queue carrying incremental updates for incremental feed
     private final LFQueue<MarketUpdate> marketUpdateLFQueue;
 
-    // The Aeron publication used for snapshot feed
-    private final Aeron aeron;
-    private final Publication snapshotPublication;
+    private final LeadershipManager leadershipManager;
+
+    private final AeronPublisher aeronPublisher;
 
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(
             r -> new Thread(r, "md-snap-publisher")
@@ -44,36 +40,33 @@ public class MarketDataSnapshotPublisher {
     private volatile boolean running = true;
 
     public MarketDataSnapshotPublisher(LFQueue<MarketUpdate> marketUpdateLFQueue,
-                                       int maxTickers,
-                                       String snapshotChannel,
-                                       int snapshotStreamId) {
+                                       LeadershipManager leadershipManager,
+                                       int maxTickers) {
+
         this.marketUpdateLFQueue = marketUpdateLFQueue;
+        this.leadershipManager = leadershipManager;
         this.marketUpdateLFQueue.subscribe(this::onIncrementalUpdate);
 
-        // Pre-allocate data structure for snapshot
         this.tickerOrders = new ArrayList<>(maxTickers);
         for (int i = 0; i < maxTickers; i++) {
             this.tickerOrders.add(new HashMap<>());
         }
 
-        // Launch an embedded MediaDriver or connect to external one
-        MediaDriver.Context mediaCtx = new MediaDriver.Context();
-        MediaDriver mediaDriver = MediaDriver.launchEmbedded(mediaCtx);
-        Aeron.Context aeronCtx = new Aeron.Context().aeronDirectoryName(mediaDriver.aeronDirectoryName());
-        this.aeron = Aeron.connect(aeronCtx);
+        String mdIp = Utils.env("AERON_IP", "224.0.1.1");
+        String mdSnapshotPort = Utils.env("MD_SNAPSHOT_PORT", "40457");
+        String channel = "aeron:udp?endpoint=" + mdIp + ":" + mdSnapshotPort;
+        int streamId = 2001;
+        this.aeronPublisher = new AeronPublisher(channel, streamId, "MD-SNAPSHOT");
 
-        // Create a separate publication for snapshot feed
-        this.snapshotPublication = aeron.addPublication(snapshotChannel, snapshotStreamId);
-
-        // Schedule a snapshot publication every 60s
+        int repeatInterval = 60;
         scheduler.scheduleAtFixedRate(
                 this::publishSnapshot,
                 60, // initial delay
-                60, // repeat interval
+                repeatInterval, // repeat interval
                 TimeUnit.SECONDS
         );
-
-        log.info("MarketDataSnapshotPublisher started. Snapshots go to {}:{} every 60s", snapshotChannel, snapshotStreamId);
+        log.info("MarketDataSnapshotPublisher started. Snapshots go to {}:{} every {}s",
+                channel, streamId, repeatInterval);
     }
 
     /**
@@ -135,9 +128,9 @@ public class MarketDataSnapshotPublisher {
     /**
      * Publish the entire snapshot to snapshotPublication.
      * We'll send:
-     *  1) SNAPSHOT_START with orderId=lastIncSeqNum
-     *  2) CLEAR + each order
-     *  3) SNAPSHOT_END with orderId=lastIncSeqNum
+     * 1) SNAPSHOT_START with orderId=lastIncSeqNum
+     * 2) CLEAR + each order
+     * 3) SNAPSHOT_END with orderId=lastIncSeqNum
      */
     public void publishSnapshot() {
         if (!running) {
@@ -153,7 +146,7 @@ public class MarketDataSnapshotPublisher {
         startMsg.setSeqNum(snapshotSeq++);
         startMsg.setType(MarketUpdateType.SNAPSHOT_START);
         startMsg.setOrderId(incSeqUsed);
-        publishToAeron(startMsg);
+        publish(startMsg);
 
         // 2) For each ticker: send CLEAR, then each order
         for (int t = 0; t < tickerOrders.size(); t++) {
@@ -162,7 +155,7 @@ public class MarketDataSnapshotPublisher {
             clearMsg.setSeqNum(snapshotSeq++);
             clearMsg.setType(MarketUpdateType.CLEAR);
             clearMsg.setTickerId(t);
-            publishToAeron(clearMsg);
+            publish(clearMsg);
 
             // Then each order
             Map<Long, MarketUpdate> ordersMap = tickerOrders.get(t);
@@ -170,7 +163,7 @@ public class MarketDataSnapshotPublisher {
                 // We copy so we can rewrite seqNum in snapshot
                 MarketUpdate orderCopy = copyOf(order);
                 orderCopy.setSeqNum(snapshotSeq++);
-                publishToAeron(orderCopy);
+                publish(orderCopy);
             }
         }
 
@@ -179,61 +172,30 @@ public class MarketDataSnapshotPublisher {
         endMsg.setSeqNum(snapshotSeq++);
         endMsg.setType(MarketUpdateType.SNAPSHOT_END);
         endMsg.setOrderId(incSeqUsed);
-        publishToAeron(endMsg);
+        publish(endMsg);
 
         log.info("== Publishing snapshot end, total msgs={} ==", snapshotSeq);
     }
 
-    /**
-     * Encode the MarketUpdate in a simple binary format, then offer to snapshotPublication.
-     */
-    private void publishToAeron(MarketUpdate mu) {
-        // Minimal example: seqNum(8), type(1), side(1), orderId(8), tickerId(8), price(8), qty(8), priority(8)
+
+    private void publish(MarketUpdate marketUpdate) {
+        if (marketUpdate == null) {
+            log.warn("Null MarketUpdate received");
+            return;
+        }
+
+        if (leadershipManager.isFollower()) {
+            log.info("Not Published {}", marketUpdate);
+            return;
+        }
+
         ExpandableDirectByteBuffer buffer = new ExpandableDirectByteBuffer(128);
         int offset = 0;
+        int length = MarketUpdateSerDe.serializeMarketUpdate(marketUpdate, buffer, offset);
 
-        buffer.putLong(offset, mu.getSeqNum(), ByteOrder.LITTLE_ENDIAN);
-        offset += 8;
+        aeronPublisher.publish(buffer, offset, length);
 
-        buffer.putByte(offset, (byte) mu.getType().ordinal());
-        offset += 1;
-
-        buffer.putByte(offset, (byte) mu.getSide().ordinal());
-        offset += 1;
-
-        buffer.putLong(offset, mu.getOrderId(), ByteOrder.LITTLE_ENDIAN);
-        offset += 8;
-
-        buffer.putLong(offset, mu.getTickerId(), ByteOrder.LITTLE_ENDIAN);
-        offset += 8;
-
-        buffer.putLong(offset, mu.getPrice(), ByteOrder.LITTLE_ENDIAN);
-        offset += 8;
-
-        buffer.putLong(offset, mu.getQty(), ByteOrder.LITTLE_ENDIAN);
-        offset += 8;
-
-        buffer.putLong(offset, mu.getPriority(), ByteOrder.LITTLE_ENDIAN);
-        offset += 8;
-
-        long result;
-        do {
-            result = snapshotPublication.offer(buffer, 0, offset);
-            if (result < 0) {
-                if (result == Publication.NOT_CONNECTED || result == Publication.BACK_PRESSURED) {
-                    if (log.isDebugEnabled()) {
-                        log.debug("Publication back pressure or not connected: {}", result);
-                    }
-                    Thread.yield();
-                } else {
-                    log.warn("Publication error: {} for marketUpdate {}", result, mu);
-                    break;
-                }
-            }
-        } while (result < 0);
-
-        // For debugging
-        log.debug("SnapshotPub: sent msg seqNum={} type={}", mu.getSeqNum(), mu.getType());
+        log.info("Published {}", marketUpdate);
     }
 
     /**
@@ -252,20 +214,15 @@ public class MarketDataSnapshotPublisher {
         return copy;
     }
 
-    /**
-     * Shut down the scheduler, mark no longer running
-     */
     public void close() {
         running = false;
         scheduler.shutdown();
-        // Optionally close snapshotPublication, Aeron, etc.
         try {
             scheduler.awaitTermination(5, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        snapshotPublication.close();
-        aeron.close();
+        aeronPublisher.close();
         log.info("MarketDataSnapshotPublisher closed.");
     }
 

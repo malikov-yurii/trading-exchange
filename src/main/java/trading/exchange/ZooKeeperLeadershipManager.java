@@ -16,7 +16,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-public class ZooKeeperLeadershipManager {
+public class ZooKeeperLeadershipManager implements LeadershipManager {
 
     private static final Logger log = LoggerFactory.getLogger(ZooKeeperLeadershipManager.class);
 
@@ -78,7 +78,7 @@ public class ZooKeeperLeadershipManager {
         }
     }
 
-    public void preDestroy() {
+    public void shutdown() {
         log.info("preDestroy");
         singleThreadExecutor.shutdown();
         try {
@@ -93,13 +93,18 @@ public class ZooKeeperLeadershipManager {
         }
     }
 
-
     public final synchronized void onLeadershipAcquired(Runnable task) {
         leadershipAcquiredTasks.add(task);
+        if (hasLeadership()) {
+            task.run();
+        }
     }
 
     public final synchronized void onLeadershipLost(Runnable task) {
         leadershipLostTasks.add(task);
+        if (isFollower()) {
+            task.run();
+        }
     }
 
     protected final synchronized void executeLeadershipAcquiredTasks() {

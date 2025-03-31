@@ -1,5 +1,18 @@
 version: '3.8'
 
+x-common-exchange-env: &common-exchange-env
+  MD_PORT: 40456
+  MD_SNAPSHOT_PORT: 40457
+
+  REPLICATION_PORT: 40552
+  REPLICATION_STREAM: 3002
+
+  REPLICATION_ACK_PORT: 40551
+  REPLICATION_ACK_STREAM: 3001
+
+  BABL_PERFORMANCE_MODE: LOW
+  WS_IP: 0.0.0.0
+
 services:
   zookeeper:
     image: bitnami/zookeeper:latest
@@ -14,13 +27,9 @@ services:
     container_name: exchange-1
     image: trading-exchange:0.1.0
     environment:
-      - INSTANCE_ID=1
-      - WS_IP=0.0.0.0
-      - WS_PORT=8091
-      - MD_IP=224.0.1.1
-      - MD_PORT=40456
-      - MD_SNAPSHOT_PORT=40457
-      - BABL_PERFORMANCE_MODE=LOW
+      INSTANCE_ID: "1"
+      WS_PORT: "8091"
+      <<: *common-exchange-env
     shm_size: "512m"
     network_mode: "host"  # for multicast support
 
@@ -28,13 +37,9 @@ services:
     container_name: exchange-2
     image: trading-exchange:0.1.0
     environment:
-      - INSTANCE_ID=2
-      - WS_IP=0.0.0.0
-      - WS_PORT=8092
-      - MD_IP=224.0.1.1
-      - MD_PORT=40456
-      - MD_SNAPSHOT_PORT=40457
-      - BABL_PERFORMANCE_MODE=LOW
+      INSTANCE_ID: "2"
+      WS_PORT: "8092"
+      <<: *common-exchange-env
     shm_size: "512m"
     network_mode: "host"  # for multicast support
 

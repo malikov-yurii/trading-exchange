@@ -1,6 +1,7 @@
 package trading.api;
 
 import io.netty.buffer.ByteBuf;
+import org.agrona.ExpandableDirectByteBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -8,18 +9,54 @@ public class OrderMessageSerDe {
 
     private static final Logger log = LoggerFactory.getLogger(OrderMessageSerDe.class);
 
+    public static int serialize(OrderMessage orderMessage, ExpandableDirectByteBuffer buffer, int offset) {
+        int startOffset = offset;
+
+        buffer.putLong(offset, orderMessage.getSeqNum());
+        offset += Long.BYTES;
+
+        buffer.putByte(offset, (byte) orderMessage.getType().ordinal());
+        offset += Byte.BYTES;
+
+        buffer.putByte(offset, (byte) orderMessage.getSide().ordinal());
+        offset += Byte.BYTES;
+
+        buffer.putLong(offset, orderMessage.getClientId());
+        offset += Long.BYTES;
+
+        buffer.putLong(offset, orderMessage.getTickerId());
+        offset += Long.BYTES;
+
+        buffer.putLong(offset, orderMessage.getClientOrderId());
+        offset += Long.BYTES;
+
+        buffer.putLong(offset, orderMessage.getMarketOrderId());
+        offset += Long.BYTES;
+
+        buffer.putLong(offset, orderMessage.getPrice());
+        offset += Long.BYTES;
+
+        buffer.putLong(offset, orderMessage.getExecQty());
+        offset += Long.BYTES;
+
+        buffer.putLong(offset, orderMessage.getLeavesQty());
+        offset += Long.BYTES;
+
+        return offset - startOffset;
+    }
+
     /**
      * OrderMessage format from server (little-endian):
-     *  - 8 bytes: seqNum
-     *  - 1 byte: type ordinal
-     *  - 1 byte: side ordinal
-     *  - 8 bytes: clientId
-     *  - 8 bytes: tickerId
-     *  - 8 bytes: clientOrderId
-     *  - 8 bytes: marketOrderId
-     *  - 8 bytes: price
-     *  - 8 bytes: execQty
-     *  - 8 bytes: leavesQty
+     * - 8 bytes: seqNum
+     * - 1 byte: type ordinal
+     * - 1 byte: side ordinal
+     * - 8 bytes: clientId
+     * - 8 bytes: tickerId
+     * - 8 bytes: clientOrderId
+     * - 8 bytes: marketOrderId
+     * - 8 bytes: price
+     * - 8 bytes: execQty
+     * - 8 bytes: leavesQty
      */
     public static OrderMessage parseOrderMessage(ByteBuf buf) {
         try {

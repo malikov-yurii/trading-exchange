@@ -27,6 +27,7 @@ import io.netty.handler.codec.http.websocketx.WebSocketClientHandshakerFactory;
 import io.netty.handler.codec.http.websocketx.WebSocketVersion;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
+import org.agrona.ExpandableDirectByteBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trading.api.OrderMessage;
@@ -76,7 +77,14 @@ public class OrderGatewayClient {
             long seq = orderSeqNum.getAndIncrement();
             orderRequest.setSeqNum(seq);
 
-            byte[] data = OrderRequestSerDe.serialize(orderRequest);
+            ExpandableDirectByteBuffer buffer = new ExpandableDirectByteBuffer(128);
+
+            int len = OrderRequestSerDe.serialize(orderRequest, buffer, 0);
+
+            byte[] data = new byte[len];
+
+            buffer.getBytes(0, data);
+
             ByteBuf nettyBuf = channel.alloc().buffer(data.length);
             nettyBuf.writeBytes(data);
 
@@ -136,9 +144,7 @@ public class OrderGatewayClient {
         connectPreferPrimary();
     }
 
-    /**
-     * Attempt a connect to 'serverUri'. Returns true if success, else false.
-     */
+//    TODO: try re-connect not more than once 100ms
     private synchronized boolean tryConnect(String serverUri) {
         try {
             if (connecting) {
@@ -178,7 +184,7 @@ public class OrderGatewayClient {
 
             String host = uri.getHost() == null ? "127.0.0.1" : uri.getHost();
             int port = getPort(uri);
-            log.info("Attempting connect to {} at {}:{}", serverUri, host, port);
+//            log.info("Attempting connect to {} at {}:{}", serverUri, host, port);
 
             ChannelFuture cf = b.connect(host, port);
             cf.addListener(f -> { /* Have to use listeners to not block Netty main loop */
@@ -196,14 +202,14 @@ public class OrderGatewayClient {
                     });
                     log.info("Connected to {} at {}:{}", serverUri, host, port);
                 } else {
-                    log.warn("Failed to connect to {} -> {}", serverUri, f.cause().getMessage());
+//                    log.warn("Failed to connect to {} -> {}", serverUri, f.cause().getMessage());
                     connecting = false;
                     tryConnectToAnotherServer(serverUri);
                 }
             });
             return true;
         } catch (Exception e) {
-            log.warn("Failed to connect to {} -> {}", serverUri, e.getMessage());
+//            log.warn("Failed to connect to {} -> {}", serverUri, e.getMessage());
             connecting = false;
             return false;
         }

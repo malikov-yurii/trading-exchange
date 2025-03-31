@@ -9,16 +9,19 @@ import com.aitusoftware.babl.websocket.DisconnectReason;
 import com.aitusoftware.babl.websocket.SendResult;
 import com.aitusoftware.babl.websocket.Session;
 import com.aitusoftware.babl.websocket.SessionContainers;
-import trading.api.OrderMessage;
-import trading.api.OrderRequest;
-import trading.api.OrderRequestType;
-import trading.api.Side;
 import org.agrona.DirectBuffer;
 import org.agrona.ExpandableDirectByteBuffer;
 import org.agrona.concurrent.ShutdownSignalBarrier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import trading.api.OrderMessage;
+import trading.api.OrderMessageSerDe;
+import trading.api.OrderRequest;
+import trading.api.OrderRequestSerDe;
 import trading.common.LFQueue;
+import trading.common.Utils;
+import trading.exchange.LeadershipManager;
+import trading.exchange.LeadershipStateProvider;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -26,37 +29,59 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static trading.common.Utils.env;
 
-/**
- * BablOrderServer that starts on a separate thread so that start() returns immediately.
- */
 public class OrderServer implements Application {
     private static final Logger log = LoggerFactory.getLogger(OrderServer.class);
 
-    private final LFQueue<OrderRequest> requestQueue;
-    private final LFQueue<OrderMessage> responseQueue;
+    private final LFQueue<OrderRequest> clientRequests;
+    private final LeadershipManager leadershipManager;
 
-    private final AtomicLong reqSeqNum = new AtomicLong(1);
+    private ReplicationConsumer replicationConsumer;
+
+    private RequestSequencer requestSequencer;
+
     private final AtomicLong respSeqNum = new AtomicLong(1);
 
     private final Map<Long, Session> sessionsByClientId = new ConcurrentHashMap<>();
     private final Map<Long, Long> clientIdBySessionId = new ConcurrentHashMap<>();
 
-    private Thread serverThread;
     private SessionContainers containers;
     private final String bindAddress;
     private final int listenPort;
 
-    public OrderServer(LFQueue<OrderRequest> requestQueue, LFQueue<OrderMessage> responseQueue,
-                       String bindAddress, int listenPort) {
-        this.requestQueue = requestQueue;
-        this.responseQueue = responseQueue;
-        this.bindAddress = bindAddress;
-        this.listenPort = listenPort;
-        // Subscribe to inbound responses so we can forward them
+    private Thread replicationConsumerThread;
+
+    private Thread wsServerThread;
+    private Thread requestSequencerThread;
+    private ShutdownSignalBarrier wsServerShutdownSignalBarrier;
+
+    public OrderServer(LFQueue<OrderRequest> clientRequests,
+                       LFQueue<OrderMessage> responseQueue,
+                       LeadershipManager leadershipManager) {
+        this.clientRequests = clientRequests;
+        this.leadershipManager = leadershipManager;
+
+        this.bindAddress = Utils.env("WS_IP", "0.0.0.0");
+        this.listenPort = Integer.valueOf(Utils.env("WS_PORT", "8080"));
         responseQueue.subscribe(this::processResponse);
     }
 
-    public void start() {
+    public synchronized void start() {
+        leadershipManager.onLeadershipAcquired(() -> {
+            stopReplicationConsumer();
+
+            startRequestSequencer();
+            startWsServer();
+        });
+
+        leadershipManager.onLeadershipLost(() -> {
+            stopWsServer();
+            stopRequestSequencer();
+
+            startReplicationConsumer();
+        });
+    }
+
+    private synchronized void startWsServer() {
         final BablConfig config = new BablConfig();
         config.sessionContainerConfig().bindAddress(bindAddress);
         config.sessionContainerConfig().listenPort(listenPort);
@@ -64,12 +89,13 @@ public class OrderServer implements Application {
         PerformanceMode perfMode = PerformanceMode.valueOf(env("BABL_PERFORMANCE_MODE", "DEVELOPMENT"));
         config.performanceConfig().performanceMode(perfMode);
 
-        serverThread = new Thread(() -> {
+        wsServerThread = new Thread(() -> {
             try {
                 containers = BablServer.launch(config);
                 containers.start();
                 log.info("BablOrderServer started. PerformanceMode=[{}]. [{}:{}]", perfMode, bindAddress, listenPort);
-                new ShutdownSignalBarrier().await();
+                wsServerShutdownSignalBarrier = new ShutdownSignalBarrier();
+                wsServerShutdownSignalBarrier.await();
             } catch (Exception e) {
                 log.error("Error in BablOrderServer thread", e);
             } finally {
@@ -80,20 +106,78 @@ public class OrderServer implements Application {
             }
         }, "BablOrderServerThread");
 
-        serverThread.start();
+        wsServerThread.start();
     }
 
-    public void shutdown() {
-        log.info("Shutting down BablOrderServer...");
-        try {
-            if (serverThread != null && serverThread.isAlive()) {
-                serverThread.interrupt();
-                serverThread.join(2000);
-            }
-        } catch (InterruptedException e) {
-            log.error("Interrupted while shutting down BablOrderServer", e);
-            Thread.currentThread().interrupt();
+    private synchronized void stopWsServer() {
+        log.info("stopWsServer. Started");
+        if (wsServerShutdownSignalBarrier != null) {
+            wsServerShutdownSignalBarrier.signal();
         }
+        if (wsServerThread != null && wsServerThread.isAlive()) {
+            wsServerThread.interrupt();
+            try {
+                wsServerThread.join(2000);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }
+        log.info("stopWsServer. Done");
+    }
+
+    private synchronized void startReplicationConsumer() {
+//        log.info("startReplicationConsumer. Started");
+        replicationConsumer = new ReplicationConsumer(clientRequests);
+        replicationConsumerThread = new Thread(replicationConsumer);
+        replicationConsumerThread.start();
+//        log.info("startReplicationConsumer. Done");
+    }
+
+    private synchronized void stopReplicationConsumer() {
+        log.info("stopReplicationConsumer. Started");
+        if (replicationConsumer != null) {
+            replicationConsumer.shutdown();
+        }
+        if (replicationConsumerThread != null && replicationConsumerThread.isAlive()) {
+            replicationConsumerThread.interrupt();
+            try {
+                replicationConsumerThread.join(2000);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }
+        log.info("stopReplicationConsumer. Done");
+    }
+
+    private synchronized void startRequestSequencer() {
+//        log.info("startRequestSequencer. Started");
+        requestSequencer = new RequestSequencer(clientRequests);
+        requestSequencerThread = new Thread(requestSequencer);
+        requestSequencerThread.start();
+//        log.info("startRequestSequencer. Done");
+    }
+
+    private synchronized void stopRequestSequencer() {
+        log.info("stopRequestSequencer. Started");
+        if (requestSequencer != null) {
+            requestSequencer.shutdown();
+        }
+        if (requestSequencerThread != null && requestSequencerThread.isAlive()) {
+            requestSequencerThread.interrupt();
+            try {
+                requestSequencerThread.join(2000);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }
+        log.info("stopRequestSequencer. Done");
+    }
+
+    public synchronized void shutdown() {
+        log.info("shutdown. Started");
+        stopWsServer();
+        stopRequestSequencer();
+        log.info("shutdown. Done");
     }
 
     @Override
@@ -116,12 +200,11 @@ public class OrderServer implements Application {
     public int onSessionMessage(Session session, ContentType contentType,
                                 DirectBuffer msg, int offset, int length) {
         try {
-//            log.info("Received message from session {} ({} bytes): {}",
-//                    session.id(), length, hexDump(msg, offset, length));
+            if (log.isDebugEnabled()) {
+                log.debug("Received {} bytes from session {}", length, session != null ? session.id() : null);
+            }
 
-            OrderRequest orderRequest = deserializeClientRequest(msg, offset, length);
-            long seq = reqSeqNum.getAndIncrement();
-            orderRequest.setSeqNum(seq);
+            OrderRequest orderRequest = OrderRequestSerDe.deserializeClientRequest(msg, offset, length);
 
             if (!sessionsByClientId.containsKey(orderRequest.getClientId())) {
                 log.info("First request from clientId={}", orderRequest.getClientId());
@@ -129,9 +212,7 @@ public class OrderServer implements Application {
                 sessionsByClientId.put(orderRequest.getClientId(), session);
             }
 
-            log.info("Received ClientRequest: {}", orderRequest);
-
-            requestQueue.offer(orderRequest);
+            requestSequencer.process(orderRequest);
         } catch (Exception e) {
             log.error("Error processing message from session {}: {}", session.id(), e.getMessage(), e);
         }
@@ -139,6 +220,13 @@ public class OrderServer implements Application {
     }
 
     private void processResponse(OrderMessage orderMessage) {
+        if (leadershipManager.isFollower()) {
+//            if (log.isDebugEnabled()) {
+//                log.debug("Not Publishing {}", orderMessage);
+//            }
+            log.info("Not Publishing {}", orderMessage);
+            return;
+        }
         if (orderMessage == null) {
             log.error("processResponse. Received null response");
             return;
@@ -154,91 +242,31 @@ public class OrderServer implements Application {
             return;
         }
 
-        // Key fix: allocate enough initial capacity for large messages
         ExpandableDirectByteBuffer buffer = new ExpandableDirectByteBuffer(128);
-        int offset = 0;
+        int length = OrderMessageSerDe.serialize(orderMessage, buffer, 0);
 
-        buffer.putLong(offset, orderMessage.getSeqNum());
-        offset += Long.BYTES;
+        sendResponse(orderMessage, session, buffer, length);
 
-        buffer.putByte(offset, (byte) orderMessage.getType().ordinal());
-        offset += Byte.BYTES;
-
-        buffer.putByte(offset, (byte) orderMessage.getSide().ordinal());
-        offset += Byte.BYTES;
-
-        buffer.putLong(offset, orderMessage.getClientId());
-        offset += Long.BYTES;
-
-        buffer.putLong(offset, orderMessage.getTickerId());
-        offset += Long.BYTES;
-
-        buffer.putLong(offset, orderMessage.getClientOrderId());
-        offset += Long.BYTES;
-
-        buffer.putLong(offset, orderMessage.getMarketOrderId());
-        offset += Long.BYTES;
-
-        buffer.putLong(offset, orderMessage.getPrice());
-        offset += Long.BYTES;
-
-        buffer.putLong(offset, orderMessage.getExecQty());
-        offset += Long.BYTES;
-
-        buffer.putLong(offset, orderMessage.getLeavesQty());
-        offset += Long.BYTES;
-
-        int length = offset;
-        ContentType binary = ContentType.BINARY;
-
-        // Attempt to send the data
-        int sendResult = session.send(binary, buffer, 0, length);
-
-        log.info("Sent response {}. {}", orderMessage, sendResult == 0 ? "OK" : "FAILED");
+        log.info("Sent response {}. OK", orderMessage);
     }
 
-    private OrderRequest deserializeClientRequest(final DirectBuffer data, int offset, int length) {
-        OrderRequest req = new OrderRequest();
-
-        // Read request type first (1 byte)
-        byte requestType = data.getByte(offset);
-        offset += Byte.BYTES;
-        OrderRequestType type = OrderRequestType.fromValue(requestType);
-        req.setType(type);
-        if (log.isDebugEnabled()) {
-            log.debug("deserializeClientRequest. requestType={}, type={}", requestType, type);
-        }
-
-        // Read sequence number (8 bytes)
-        long seq = data.getLong(offset);
-        offset += Long.BYTES;
-        req.setSeqNum(seq);
-
-        // Read side (1 byte)
-        byte sideOrd = data.getByte(offset);
-        offset += Byte.BYTES;
-        req.setSide(Side.values()[sideOrd]);
-
-        // Read clientId (8 bytes)
-        req.setClientId(data.getLong(offset));
-        offset += Long.BYTES;
-
-        // Read tickerId (8 bytes)
-        req.setTickerId(data.getLong(offset));
-        offset += Long.BYTES;
-
-        // Read orderId (8 bytes)
-        req.setOrderId(data.getLong(offset));
-        offset += Long.BYTES;
-
-        // Read price (8 bytes)
-        req.setPrice(data.getLong(offset));
-        offset += Long.BYTES;
-
-        // Read qty (8 bytes)
-        req.setQty(data.getLong(offset));
-        offset += Long.BYTES;
-
-        return req;
+    private static void sendResponse(OrderMessage orderMessage, Session session, DirectBuffer buffer, int length) {
+        int sendResult;
+        int attempt = 0;
+        do {
+            sendResult = session.send(ContentType.BINARY, buffer, 0, length);
+            if (sendResult != 0) {
+                try {
+                    if (log.isDebugEnabled()) {
+                        log.info("Failed to send response {}. Retrying in {}ms...", orderMessage, attempt);
+                    }
+                    Thread.sleep(++attempt); // Pause for a moment before retrying
+                } catch (InterruptedException e) {
+                    log.error("Error while trying to pause between retries", e);
+                    Thread.currentThread().interrupt();
+                }
+            }
+        } while (sendResult != 0);
     }
+
 }

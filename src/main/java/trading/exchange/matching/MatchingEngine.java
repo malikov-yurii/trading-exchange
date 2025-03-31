@@ -46,7 +46,9 @@ public final class MatchingEngine {
     }
 
     private void processClientRequest(OrderRequest req) {
-        log.info("Processing {}", req);
+        if (log.isDebugEnabled()) {
+            log.debug("Processing {}", req);
+        }
         OrderBook orderBook = tickerOrderBook[(int) req.getTickerId()];
 
         switch (req.getType()) {
@@ -62,12 +64,16 @@ public final class MatchingEngine {
     }
 
     public void sendClientResponse(OrderMessage response) {
-        log.info("Sending {}", response);
+        if (log.isDebugEnabled()) {
+            log.debug("Sending {}", response);
+        }
         outgoingResponses.offer(response);
     }
 
     public void sendMarketUpdate(MarketUpdate update) {
-        log.info("Sending {}", update);
+        if (log.isDebugEnabled()) {
+            log.debug("Sending {}", update);
+        }
         outgoingMdUpdates.offer(update);
     }
 
