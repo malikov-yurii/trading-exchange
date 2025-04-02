@@ -6,5 +6,5 @@ git pull origin dev
 
 ./build.sh
 
-./start.sh
+./startInfra.sh
 

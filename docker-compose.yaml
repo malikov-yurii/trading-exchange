@@ -1,94 +1,39 @@
-version: '3.8'
-
-x-common-exchange-env: &common-exchange-env
-  MD_PORT: 40456
-  MD_SNAPSHOT_PORT: 40457
-  REPLICATION_PORT: 40552
-  REPLICATION_STREAM: 3002
-  REPLICATION_ACK_PORT: 40551
-  REPLICATION_ACK_STREAM: 3001
-  BABL_PERFORMANCE_MODE: LOW
-  WS_IP: 0.0.0.0
-  AERON_DIR: /aeron/vol/driver
+version: '3'
 
 services:
-  zookeeper:
-    image: bitnami/zookeeper:latest
-    container_name: zookeeper
-    environment:
-      - ALLOW_ANONYMOUS_LOGIN=yes
-      - ZOO_STANDALONE_ENABLED=true
-      - ZOO_PORT_NUMBER=2181
-    network_mode: host
-
-  aeron:
-    container_name: aeron
+  archive-host:
+    shm_size: "1gb"
     build:
-      context: ./aeron-md
+      context: .
+      dockerfile: aeron-arc/Dockerfile
     environment:
-      - JAVA_TOOL_OPTIONS=-Daeron.dir=/aeron/vol/driver
-    volumes:
-      - aeron-dir:/aeron/vol
-    network_mode: host
+      - ARCHIVEHOST=archive-host
+      - CONTROLPORT=17000
+      - EVENTSPORT=17001
+    hostname: archive-host
+    networks:
+      default:
+        ipv4_address: 10.42.0.2
 
-  exchange-1:
-    container_name: exchange-1
-    image: trading-exchange:0.1.0
+  archive-client:
+    shm_size: "1gb"
+    build:
+      context: .
+      dockerfile: aeron-cli/Dockerfile
     environment:
-      INSTANCE_ID: "1"
-      WS_PORT: "8091"
-      <<: *common-exchange-env
-    volumes:
-      - aeron-dir:/aeron/vol
-    shm_size: "512m"
-    network_mode: "host"
-    depends_on:
-      - aeron
+      - ARCHIVEHOST=archive-host
+      - THISHOST=archive-client
+      - CONTROLPORT=17000
+      - EVENTSPORT=17001
+    hostname: archive-client
+    networks:
+      default:
+        ipv4_address: 10.42.0.3
+networks:
+  default:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.42.0.0/24
 
-  exchange-2:
-    container_name: exchange-2
-    image: trading-exchange:0.1.0
-    environment:
-      INSTANCE_ID: "2"
-      WS_PORT: "8092"
-      <<: *common-exchange-env
-    volumes:
-        - aeron-dir:/aeron/vol
-    shm_size: "512m"
-    network_mode: "host"
-    depends_on:
-      - aeron
-
-  trader-R:
-    container_name: trader-R
-    image: trading-participant:0.1.0
-    environment:
-      - CLIENT_ID=1
-      - ALGO_TYPE=RANDOM
-      - "ORDER_SERVER_1_URI=ws://localhost:8091/ws"
-      - "ORDER_SERVER_2_URI=ws://localhost:8092/ws"
-      - AERON_DIR=/aeron/vol/driver
-    volumes:
-      - aeron-dir:/aeron/vol
-    shm_size: "512m"
-    network_mode: "host"
-    depends_on:
-      - exchange-1
-    entrypoint: ["/bin/sh", "-c", "sleep 10 && java --add-opens=java.base/sun.nio.ch=ALL-UNNAMED -Daeron.dir=/aeron/vol/driver -jar /app/trading-participant.jar"]
-
-volumes:
-  aeron-dir:
-
-#  trader-M:
-#    container_name: trader-M
-#    image: trading-participant:0.1.0
-#    environment:
-#      - CLIENT_ID=2
-#      - ALGO_TYPE=MARKET_MAKER
-#      - "ORDER_SERVER_URI=ws://localhost:8091/ws"
-#    shm_size: "512m"
-#    network_mode: "host"
-#    depends_on:
-#      - exchange-1
-#    entrypoint: ["/bin/sh", "-c", "sleep 10 && java --add-opens=java.base/sun.nio.ch=ALL-UNNAMED -jar /app/trading-participant.jar"]
 

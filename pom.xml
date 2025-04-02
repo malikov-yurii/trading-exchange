@@ -9,8 +9,8 @@
     <version>0.1.0</version>
 
     <properties>
-        <maven.compiler.source>11</maven.compiler.source>
-        <maven.compiler.target>11</maven.compiler.target>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
@@ -56,12 +56,12 @@
             </exclusions>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/com.aitusoftware/babl -->
-        <dependency>
-            <groupId>com.aitusoftware</groupId>
-            <artifactId>babl</artifactId>
-            <version>0.11.0</version>
-        </dependency>
+<!--        &lt;!&ndash; https://mvnrepository.com/artifact/com.aitusoftware/babl &ndash;&gt;-->
+<!--        <dependency>-->
+<!--            <groupId>com.aitusoftware</groupId>-->
+<!--            <artifactId>babl</artifactId>-->
+<!--            <version>0.11.0</version>-->
+<!--        </dependency>-->
 
 
         <dependency>
@@ -74,7 +74,9 @@
             <groupId>io.aeron</groupId>
             <artifactId>aeron-all</artifactId>
 <!--            <version>1.39.0</version>-->
-                        <version>1.42.1</version>
+<!--                        <version>1.42.1</version>-->
+                        <version>1.47.0</version>
+<!--                        <version>1.47.4</version>-->
         </dependency>
 
         <dependency>
@@ -136,73 +138,71 @@
         </dependency>
     </dependencies>
 
-
-
     <build>
         <plugins>
-            <!-- Java 11 compilation -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.11.0</version>
                 <configuration>
-                    <release>11</release>
+                    <release>21</release>
                 </configuration>
             </plugin>
 
-            <!-- Shade plugin: builds 2 different fat jars -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
                 <version>3.4.1</version>
                 <executions>
-
-                    <!-- 1. Build trading-exchange fat jar -->
+                    <!-- ExchangeApplication jar -->
                     <execution>
-                        <id>shade-exchange</id>
+                        <id>exchange-fat-jar</id>
                         <phase>package</phase>
-                        <goals>
-                            <goal>shade</goal>
-                        </goals>
+                        <goals><goal>shade</goal></goals>
                         <configuration>
-                            <finalName>trading-exchange-0.1.0</finalName>
+                            <finalName>trading</finalName>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
                             <transformers>
-
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                                     <mainClass>trading.exchange.ExchangeApplication</mainClass>
-                                    <manifestEntries>
-                                        <Add-Opens>java.base/sun.nio.ch=ALL-UNNAMED</Add-Opens>
-                                    </manifestEntries>
                                 </transformer>
                             </transformers>
                         </configuration>
                     </execution>
 
-                    <!-- 2. Build trading-participant fat jar -->
+                    <!-- ArchiveHost jar -->
                     <execution>
-                        <id>shade-participant</id>
+                        <id>archive-host-fat-jar</id>
                         <phase>package</phase>
-                        <goals>
-                            <goal>shade</goal>
-                        </goals>
+                        <goals><goal>shade</goal></goals>
                         <configuration>
-                            <finalName>trading-participant-0.1.0</finalName>
+                            <finalName>archive-host</finalName>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>trading.participant.ParticipantApplication</mainClass>
-                                    <manifestEntries>
-                                        <Add-Opens>java.base/sun.nio.ch=ALL-UNNAMED</Add-Opens>
-                                    </manifestEntries>
+                                    <mainClass>aeron.archivehost.ArchiveHost</mainClass>
                                 </transformer>
                             </transformers>
                         </configuration>
                     </execution>
 
+                    <!-- ArchiveClient jar -->
+                    <execution>
+                        <id>archive-client-fat-jar</id>
+                        <phase>package</phase>
+                        <goals><goal>shade</goal></goals>
+                        <configuration>
+                            <finalName>archive-client</finalName>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>aeron.archiveclient.ArchiveClient</mainClass>
+                                </transformer>
+                            </transformers>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
-
         </plugins>
     </build>
-
-
 </project>

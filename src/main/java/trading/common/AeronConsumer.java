@@ -34,7 +34,8 @@ public class AeronConsumer {
     public void run() {
         String idle = env("MD_WAIT_STRATEGY", "SLEEPING_WAIT");
         IdleStrategy idleStrategy;
-        String msg = String.format("--------------------> [%s] Starting AeronConsumer: channel: %s, streamId: %s. Idle Strategy %s", name, channel, streamId, idle);
+        String msg = String.format("--------------------> [%s] Starting AeronConsumer: channel: %s, streamId: %s. Idle Strategy %s. aeronDir: %s",
+                name, channel, streamId, idle, AeronClient.getAeronDirectory());
         if ("SLEEPING_WAIT".equals(idle)) {
             msg += ". sleepPeriodMs=" + sleepPeriodMs;
             idleStrategy = new SleepingMillisIdleStrategy(sleepPeriodMs);

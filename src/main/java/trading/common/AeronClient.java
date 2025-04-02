@@ -11,7 +11,7 @@ public final class AeronClient {
 
     public static Aeron initAeronClient() {
         Aeron.Context aeronCtx;
-        String env = env("AERON_DIR", null);
+        String env = getAeronDirectory();
         if (env != null) {
             aeronCtx = new Aeron.Context().aeronDirectoryName(env);
         } else {
@@ -21,6 +21,10 @@ public final class AeronClient {
             aeronCtx = new Aeron.Context().aeronDirectoryName(mediaDriver.aeronDirectoryName());
         }
         return Aeron.connect(aeronCtx);
+    }
+
+    public static String getAeronDirectory() {
+        return env("AERON_DIR", null);
     }
 
 }

@@ -1,17 +1,21 @@
 package trading.exchange.orderserver;
 
-import com.aitusoftware.babl.config.BablConfig;
-import com.aitusoftware.babl.config.PerformanceMode;
-import com.aitusoftware.babl.user.Application;
-import com.aitusoftware.babl.user.ContentType;
-import com.aitusoftware.babl.websocket.BablServer;
-import com.aitusoftware.babl.websocket.DisconnectReason;
-import com.aitusoftware.babl.websocket.SendResult;
-import com.aitusoftware.babl.websocket.Session;
-import com.aitusoftware.babl.websocket.SessionContainers;
+import io.netty.bootstrap.ServerBootstrap;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import io.netty.channel.*;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.SocketChannel;
+import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.handler.codec.http.HttpObjectAggregator;
+import io.netty.handler.codec.http.HttpServerCodec;
+import io.netty.handler.codec.http.websocketx.*;
+import io.netty.handler.stream.ChunkedWriteHandler;
+import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
 import org.agrona.DirectBuffer;
 import org.agrona.ExpandableDirectByteBuffer;
 import org.agrona.concurrent.ShutdownSignalBarrier;
+import org.agrona.concurrent.UnsafeBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trading.api.OrderMessage;
@@ -21,7 +25,6 @@ import trading.api.OrderRequestSerDe;
 import trading.common.LFQueue;
 import trading.common.Utils;
 import trading.exchange.LeadershipManager;
-import trading.exchange.LeadershipStateProvider;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,31 +32,46 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static trading.common.Utils.env;
 
-public class OrderServer implements Application {
+/**
+ * A Netty-based implementation of what was previously a Babl-based WebSocket server.
+ * Listens on bindAddress:listenPort for incoming WebSocket connections,
+ * decodes binary frames into OrderRequests, and enqueues them.
+ * Also sends OrderMessage responses to connected clients.
+ */
+public class OrderServer {
     private static final Logger log = LoggerFactory.getLogger(OrderServer.class);
 
     private final LFQueue<OrderRequest> clientRequests;
     private final LeadershipManager leadershipManager;
 
     private ReplicationConsumer replicationConsumer;
-
     private RequestSequencer requestSequencer;
 
     private final AtomicLong respSeqNum = new AtomicLong(1);
 
-    private final Map<Long, Session> sessionsByClientId = new ConcurrentHashMap<>();
-    private final Map<Long, Long> clientIdBySessionId = new ConcurrentHashMap<>();
+    // Store clientId -> Channel and ChannelId -> clientId
+    private final Map<Long, Channel> channelsByClientId = new ConcurrentHashMap<>();
+    private final Map<ChannelId, Long> clientIdByChannelId = new ConcurrentHashMap<>();
 
-    private SessionContainers containers;
     private final String bindAddress;
     private final int listenPort;
 
     private Thread replicationConsumerThread;
-
-    private Thread wsServerThread;
     private Thread requestSequencerThread;
-    private ShutdownSignalBarrier wsServerShutdownSignalBarrier;
 
+    // Netty groups and server channel
+    private EventLoopGroup bossGroup;
+    private EventLoopGroup workerGroup;
+    private Channel serverChannel;
+
+    private ShutdownSignalBarrier shutdownBarrier;
+
+    /**
+     * Constructor.
+     * @param clientRequests  The queue where client OrderRequests are placed
+     * @param responseQueue   The queue from which OrderMessages will be read and sent to clients
+     * @param leadershipManager Manages whether this server is leader or follower
+     */
     public OrderServer(LFQueue<OrderRequest> clientRequests,
                        LFQueue<OrderMessage> responseQueue,
                        LeadershipManager leadershipManager) {
@@ -61,76 +79,119 @@ public class OrderServer implements Application {
         this.leadershipManager = leadershipManager;
 
         this.bindAddress = Utils.env("WS_IP", "0.0.0.0");
-        this.listenPort = Integer.valueOf(Utils.env("WS_PORT", "8080"));
+        this.listenPort = Integer.parseInt(Utils.env("WS_PORT", "8080"));
+
+        // Subscribe to responses; process them in processResponse method
         responseQueue.subscribe(this::processResponse);
     }
 
+    /**
+     * Start the server. Leadership changes will start/stop the Netty server
+     * and replication consumer accordingly.
+     */
     public synchronized void start() {
         leadershipManager.onLeadershipAcquired(() -> {
             stopReplicationConsumer();
-
             startRequestSequencer();
-            startWsServer();
+            startNettyServer();
         });
 
         leadershipManager.onLeadershipLost(() -> {
-            stopWsServer();
+            stopNettyServer();
             stopRequestSequencer();
-
             startReplicationConsumer();
         });
     }
 
-    private synchronized void startWsServer() {
-        final BablConfig config = new BablConfig();
-        config.sessionContainerConfig().bindAddress(bindAddress);
-        config.sessionContainerConfig().listenPort(listenPort);
-        config.applicationConfig().application(this);
-        PerformanceMode perfMode = PerformanceMode.valueOf(env("BABL_PERFORMANCE_MODE", "DEVELOPMENT"));
-        config.performanceConfig().performanceMode(perfMode);
+    /**
+     * Start the Netty WebSocket server.
+     */
+    private synchronized void startNettyServer() {
+        if (bossGroup != null || workerGroup != null) {
+            log.warn("Netty server already started; skipping.");
+            return;
+        }
 
-        wsServerThread = new Thread(() -> {
-            try {
-                containers = BablServer.launch(config);
-                containers.start();
-                log.info("BablOrderServer started. PerformanceMode=[{}]. [{}:{}]", perfMode, bindAddress, listenPort);
-                wsServerShutdownSignalBarrier = new ShutdownSignalBarrier();
-                wsServerShutdownSignalBarrier.await();
-            } catch (Exception e) {
-                log.error("Error in BablOrderServer thread", e);
-            } finally {
-                if (containers != null) {
-                    containers.close();
-                }
-                log.info("BablOrderServer thread has exited.");
-            }
-        }, "BablOrderServerThread");
+        bossGroup = new NioEventLoopGroup(1);
+        workerGroup = new NioEventLoopGroup();
+        try {
+            ServerBootstrap b = new ServerBootstrap();
+            b.group(bossGroup, workerGroup)
+                    .channel(NioServerSocketChannel.class)
+                    .option(ChannelOption.SO_BACKLOG, 1024)
+                    .childOption(ChannelOption.SO_KEEPALIVE, true)
+                    .childHandler(new ChannelInitializer<SocketChannel>() {
+                        @Override
+                        protected void initChannel(SocketChannel ch) {
+                            ChannelPipeline pipeline = ch.pipeline();
+                            // Standard HTTP handlers
+                            pipeline.addLast(new HttpServerCodec());
+                            pipeline.addLast(new HttpObjectAggregator(65536));
+                            pipeline.addLast(new ChunkedWriteHandler());
+                            // WebSocket upgrade handler
+                            pipeline.addLast(new WebSocketServerProtocolHandler("/", null, true, 65536));
+                            // Custom handler to manage frames
+                            pipeline.addLast(new WebSocketFrameHandler());
+                        }
+                    });
 
-        wsServerThread.start();
+            ChannelFuture f = b.bind(bindAddress, listenPort).sync();
+            serverChannel = f.channel();
+            log.info("Netty WebSocket Server started on {}:{}", bindAddress, listenPort);
+
+            // We use a ShutdownSignalBarrier to coordinate stopping
+            shutdownBarrier = new ShutdownSignalBarrier();
+            // You could block here, but typically you'd let leadership
+            // control or keep the thread active until you need to shut down.
+            // If you'd like to block in this method, uncomment:
+            // shutdownBarrier.await();
+
+        } catch (InterruptedException e) {
+            log.error("Interrupted while starting Netty server", e);
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            log.error("Error while starting Netty server", e);
+        }
     }
 
-    private synchronized void stopWsServer() {
-        log.info("stopWsServer. Started");
-        if (wsServerShutdownSignalBarrier != null) {
-            wsServerShutdownSignalBarrier.signal();
-        }
-        if (wsServerThread != null && wsServerThread.isAlive()) {
-            wsServerThread.interrupt();
-            try {
-                wsServerThread.join(2000);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
+    /**
+     * Stop the Netty WebSocket server.
+     */
+    private synchronized void stopNettyServer() {
+        log.info("stopNettyServer. Started");
+        try {
+            if (serverChannel != null) {
+                serverChannel.close().sync();
             }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("Interrupted while closing server channel", e);
+        } finally {
+            serverChannel = null;
         }
-        log.info("stopWsServer. Done");
+
+        if (bossGroup != null) {
+            bossGroup.shutdownGracefully();
+            bossGroup = null;
+        }
+        if (workerGroup != null) {
+            workerGroup.shutdownGracefully();
+            workerGroup = null;
+        }
+
+        // Signal any waiting threads (if we used barrier.await())
+        if (shutdownBarrier != null) {
+            shutdownBarrier.signal();
+            shutdownBarrier = null;
+        }
+
+        log.info("stopNettyServer. Done");
     }
 
     private synchronized void startReplicationConsumer() {
-//        log.info("startReplicationConsumer. Started");
         replicationConsumer = new ReplicationConsumer(clientRequests);
-        replicationConsumerThread = new Thread(replicationConsumer);
+        replicationConsumerThread = new Thread(replicationConsumer, "ReplicationConsumerThread");
         replicationConsumerThread.start();
-//        log.info("startReplicationConsumer. Done");
     }
 
     private synchronized void stopReplicationConsumer() {
@@ -143,18 +204,19 @@ public class OrderServer implements Application {
             try {
                 replicationConsumerThread.join(2000);
             } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
                 throw new RuntimeException(e);
             }
         }
+        replicationConsumerThread = null;
+        replicationConsumer = null;
         log.info("stopReplicationConsumer. Done");
     }
 
     private synchronized void startRequestSequencer() {
-//        log.info("startRequestSequencer. Started");
         requestSequencer = new RequestSequencer(clientRequests);
-        requestSequencerThread = new Thread(requestSequencer);
+        requestSequencerThread = new Thread(requestSequencer, "RequestSequencerThread");
         requestSequencerThread.start();
-//        log.info("startRequestSequencer. Done");
     }
 
     private synchronized void stopRequestSequencer() {
@@ -167,63 +229,31 @@ public class OrderServer implements Application {
             try {
                 requestSequencerThread.join(2000);
             } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
                 throw new RuntimeException(e);
             }
         }
+        requestSequencerThread = null;
+        requestSequencer = null;
         log.info("stopRequestSequencer. Done");
     }
 
+    /**
+     * Shutdown the server completely (if it's leader). Typically used for a graceful shutdown.
+     */
     public synchronized void shutdown() {
         log.info("shutdown. Started");
-        stopWsServer();
+        stopNettyServer();
         stopRequestSequencer();
         log.info("shutdown. Done");
     }
 
-    @Override
-    public int onSessionConnected(final Session session) {
-        log.info("Session {} connected", session.id());
-        return SendResult.OK;
-    }
-
-    @Override
-    public int onSessionDisconnected(Session session, DisconnectReason reason) {
-        log.info("Session {} disconnected due to {}", session.id(), reason.name());
-        Long clientId = clientIdBySessionId.remove(session.id());
-        if (clientId != null) {
-            sessionsByClientId.remove(clientId);
-        }
-        return SendResult.OK;
-    }
-
-    @Override
-    public int onSessionMessage(Session session, ContentType contentType,
-                                DirectBuffer msg, int offset, int length) {
-        try {
-            if (log.isDebugEnabled()) {
-                log.debug("Received {} bytes from session {}", length, session != null ? session.id() : null);
-            }
-
-            OrderRequest orderRequest = OrderRequestSerDe.deserializeClientRequest(msg, offset, length);
-
-            if (!sessionsByClientId.containsKey(orderRequest.getClientId())) {
-                log.info("First request from clientId={}", orderRequest.getClientId());
-                clientIdBySessionId.put(session.id(), orderRequest.getClientId());
-                sessionsByClientId.put(orderRequest.getClientId(), session);
-            }
-
-            requestSequencer.process(orderRequest);
-        } catch (Exception e) {
-            log.error("Error processing message from session {}: {}", session.id(), e.getMessage(), e);
-        }
-        return SendResult.OK;
-    }
-
+    /**
+     * Called when a new OrderMessage is ready to be sent to the client.
+     */
     private void processResponse(OrderMessage orderMessage) {
+        // If we're not the leader, we don't publish.
         if (leadershipManager.isFollower()) {
-//            if (log.isDebugEnabled()) {
-//                log.debug("Not Publishing {}", orderMessage);
-//            }
             log.info("Not Publishing {}", orderMessage);
             return;
         }
@@ -236,37 +266,126 @@ public class OrderServer implements Application {
         orderMessage.setSeqNum(seq);
 
         long clientId = orderMessage.getClientId();
-        Session session = sessionsByClientId.get(clientId);
-        if (session == null) {
-            log.error("processResponse. Client session not found for clientId={}", clientId);
+        Channel channel = channelsByClientId.get(clientId);
+        if (channel == null) {
+            log.error("processResponse. Client channel not found for clientId={}", clientId);
             return;
         }
 
         ExpandableDirectByteBuffer buffer = new ExpandableDirectByteBuffer(128);
         int length = OrderMessageSerDe.serialize(orderMessage, buffer, 0);
 
-        sendResponse(orderMessage, session, buffer, length);
+        // Indefinite retry loop, mimicking the old code's approach.
+        // This is NOT recommended in Netty's event loop, so be aware of potential blocking.
+        ByteBuf msg = Unpooled.copiedBuffer(buffer.byteArray(), 0, length);
+        int attempt = 0;
+        while (true) {
+            try {
+                ChannelFuture future = channel.writeAndFlush(new BinaryWebSocketFrame(msg.retainedDuplicate())).sync();
+                if (future.isSuccess()) {
+                    break; // Successfully sent
+                } else {
+                    // Sleep a bit before retry
+                    attempt++;
+                    Thread.sleep(attempt);
+                }
+            } catch (InterruptedException e) {
+                log.error("Error while trying to pause between retries", e);
+                Thread.currentThread().interrupt();
+                break;
+            } catch (Exception e) {
+                log.error("Failed to send response {}, attempt={}", orderMessage, attempt, e);
+                attempt++;
+                try {
+                    Thread.sleep(attempt);
+                } catch (InterruptedException ie) {
+                    log.error("Interrupted while retry-sleeping", ie);
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
 
         log.info("Sent response {}. OK", orderMessage);
     }
 
-    private static void sendResponse(OrderMessage orderMessage, Session session, DirectBuffer buffer, int length) {
-        int sendResult;
-        int attempt = 0;
-        do {
-            sendResult = session.send(ContentType.BINARY, buffer, 0, length);
-            if (sendResult != 0) {
+    /**
+     * Handler for inbound WebSocket frames.
+     * Decodes BinaryWebSocketFrame -> OrderRequest, then hands off to RequestSequencer.
+     */
+    private class WebSocketFrameHandler extends SimpleChannelInboundHandler<WebSocketFrame> {
+
+        @Override
+        public void channelActive(ChannelHandlerContext ctx) {
+            log.info("Session {} connected", ctx.channel().id().asShortText());
+        }
+
+        @Override
+        public void channelInactive(ChannelHandlerContext ctx) {
+            log.info("Session {} disconnected", ctx.channel().id().asShortText());
+            ChannelId channelId = ctx.channel().id();
+            Long clientId = clientIdByChannelId.remove(channelId);
+            if (clientId != null) {
+                channelsByClientId.remove(clientId);
+            }
+        }
+
+        @Override
+        protected void channelRead0(ChannelHandlerContext ctx, WebSocketFrame frame) {
+            if (frame instanceof CloseWebSocketFrame) {
+                ctx.close();
+                return;
+            }
+            if (frame instanceof PingWebSocketFrame) {
+                ctx.writeAndFlush(new PongWebSocketFrame(frame.content().retain()));
+                return;
+            }
+            if (frame instanceof PongWebSocketFrame) {
+                // ignore pongs
+                return;
+            }
+            if (frame instanceof TextWebSocketFrame) {
+                // We only expect binary frames, but we can log or ignore text
+                log.debug("Ignoring text frame: {}", ((TextWebSocketFrame) frame).text());
+                return;
+            }
+
+            // Must be a BinaryWebSocketFrame
+            if (frame instanceof BinaryWebSocketFrame) {
+                ByteBuf content = ((BinaryWebSocketFrame) frame).content();
+                int length = content.readableBytes();
+                byte[] data = new byte[length];
+                content.readBytes(data);
+                DirectBuffer directBuffer = new UnsafeBuffer(data);
+
                 try {
-                    if (log.isDebugEnabled()) {
-                        log.info("Failed to send response {}. Retrying in {}ms...", orderMessage, attempt);
+                    OrderRequest orderRequest = OrderRequestSerDe.deserializeClientRequest(directBuffer, 0, length);
+                    long clientId = orderRequest.getClientId();
+
+                    // If first request from this client, store channel
+                    if (!channelsByClientId.containsKey(clientId)) {
+                        log.info("First request from clientId={}", clientId);
+                        channelsByClientId.put(clientId, ctx.channel());
+                        clientIdByChannelId.put(ctx.channel().id(), clientId);
                     }
-                    Thread.sleep(++attempt); // Pause for a moment before retrying
-                } catch (InterruptedException e) {
-                    log.error("Error while trying to pause between retries", e);
-                    Thread.currentThread().interrupt();
+
+                    // Hand off to the RequestSequencer
+                    if (requestSequencer != null) {
+                        requestSequencer.process(orderRequest);
+                    } else {
+                        log.warn("RequestSequencer not active, ignoring request from clientId={}", clientId);
+                    }
+
+                } catch (Exception e) {
+                    log.error("Error decoding BinaryWebSocketFrame", e);
                 }
             }
-        } while (sendResult != 0);
-    }
+        }
 
+        @Override
+        public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+            log.error("Exception in WebSocketFrameHandler. Closing channel {}", ctx.channel().id().asShortText(), cause);
+            ctx.close();
+        }
+    }
 }
