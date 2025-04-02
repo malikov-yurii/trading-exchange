@@ -3,15 +3,13 @@ version: '3.8'
 x-common-exchange-env: &common-exchange-env
   MD_PORT: 40456
   MD_SNAPSHOT_PORT: 40457
-
   REPLICATION_PORT: 40552
   REPLICATION_STREAM: 3002
-
   REPLICATION_ACK_PORT: 40551
   REPLICATION_ACK_STREAM: 3001
-
   BABL_PERFORMANCE_MODE: LOW
   WS_IP: 0.0.0.0
+  AERON_DIR: /aeron/vol/driver
 
 services:
   zookeeper:
@@ -23,6 +21,16 @@ services:
       - ZOO_PORT_NUMBER=2181
     network_mode: host
 
+  aeron:
+    container_name: aeron
+    build:
+      context: ./aeron-md
+    environment:
+      - JAVA_TOOL_OPTIONS=-Daeron.dir=/aeron/vol/driver
+    volumes:
+      - aeron-dir:/aeron/vol
+    network_mode: host
+
   exchange-1:
     container_name: exchange-1
     image: trading-exchange:0.1.0
@@ -30,8 +38,12 @@ services:
       INSTANCE_ID: "1"
       WS_PORT: "8091"
       <<: *common-exchange-env
+    volumes:
+      - aeron-dir:/aeron/vol
     shm_size: "512m"
-    network_mode: "host"  # for multicast support
+    network_mode: "host"
+    depends_on:
+      - aeron
 
   exchange-2:
     container_name: exchange-2
@@ -40,8 +52,12 @@ services:
       INSTANCE_ID: "2"
       WS_PORT: "8092"
       <<: *common-exchange-env
+    volumes:
+        - aeron-dir:/aeron/vol
     shm_size: "512m"
-    network_mode: "host"  # for multicast support
+    network_mode: "host"
+    depends_on:
+      - aeron
 
   trader-R:
     container_name: trader-R
@@ -51,11 +67,17 @@ services:
       - ALGO_TYPE=RANDOM
       - "ORDER_SERVER_1_URI=ws://localhost:8091/ws"
       - "ORDER_SERVER_2_URI=ws://localhost:8092/ws"
+      - AERON_DIR=/aeron/vol/driver
+    volumes:
+      - aeron-dir:/aeron/vol
     shm_size: "512m"
     network_mode: "host"
     depends_on:
       - exchange-1
-    entrypoint: ["/bin/sh", "-c", "sleep 10 && java --add-opens=java.base/sun.nio.ch=ALL-UNNAMED -jar /app/trading-participant.jar"]
+    entrypoint: ["/bin/sh", "-c", "sleep 10 && java --add-opens=java.base/sun.nio.ch=ALL-UNNAMED -Daeron.dir=/aeron/vol/driver -jar /app/trading-participant.jar"]
+
+volumes:
+  aeron-dir:
 
 #  trader-M:
 #    container_name: trader-M

@@ -1,8 +1,6 @@
 package trading.common;
 
-import io.aeron.Aeron;
 import io.aeron.Subscription;
-import io.aeron.driver.MediaDriver;
 import io.aeron.logbuffer.FragmentHandler;
 import org.agrona.concurrent.BusySpinIdleStrategy;
 import org.agrona.concurrent.IdleStrategy;
@@ -24,21 +22,13 @@ public class AeronConsumer {
 
     private volatile boolean running;
 
-
     public AeronConsumer(String ip, String port, int streamId, FragmentHandler fragmentHandler, String name) {
         this.name = name;
         this.fragmentHandler = fragmentHandler;
 
-        MediaDriver.Context mediaCtx = new MediaDriver.Context();
-        MediaDriver mediaDriver = MediaDriver.launchEmbedded(mediaCtx);
-
-        Aeron.Context aeronCtx = new Aeron.Context()
-                .aeronDirectoryName(mediaDriver.aeronDirectoryName());
-        Aeron aeron = Aeron.connect(aeronCtx);
-
         channel = "aeron:udp?endpoint=" + ip + ":" + port;
         this.streamId = streamId;
-        this.subscription = aeron.addSubscription(channel, this.streamId);
+        this.subscription = AeronClient.INSTANCE.addSubscription(channel, this.streamId);
     }
 
     public void run() {

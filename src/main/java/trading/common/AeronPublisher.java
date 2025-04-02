@@ -1,8 +1,6 @@
 package trading.common;
 
-import io.aeron.Aeron;
 import io.aeron.Publication;
-import io.aeron.driver.MediaDriver;
 import org.agrona.DirectBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,7 +8,6 @@ import org.slf4j.LoggerFactory;
 public class AeronPublisher {
     private static final Logger log = LoggerFactory.getLogger(AeronPublisher.class);
 
-    private final Aeron aeron;
     private final Publication publication;
     private final String name;
 
@@ -18,14 +15,7 @@ public class AeronPublisher {
         log.info("--------------------> [{}] Creating AeronPublisher: channel: {}, streamId: {}", name, channel, streamId);
         this.name = name;
 
-        MediaDriver.Context mediaCtx = new MediaDriver.Context();
-        MediaDriver mediaDriver = MediaDriver.launchEmbedded(mediaCtx);
-
-        Aeron.Context aeronCtx = new Aeron.Context()
-                .aeronDirectoryName(mediaDriver.aeronDirectoryName());
-
-        this.aeron = Aeron.connect(aeronCtx);
-        this.publication = aeron.addPublication(channel, streamId);
+        this.publication = AeronClient.INSTANCE.addPublication(channel, streamId);
     }
 
     public void publish(DirectBuffer buffer, int offset, int length) {
@@ -57,7 +47,6 @@ public class AeronPublisher {
 
     public void close() {
         publication.close();
-        aeron.close();
         // If you launched an embedded MediaDriver, keep a reference to it and close here
     }
 
