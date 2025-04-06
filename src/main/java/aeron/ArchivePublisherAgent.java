@@ -1,4 +1,4 @@
-package aeron.archivepublisher;
+package aeron;
 
 import io.aeron.Aeron;
 import io.aeron.Publication;
@@ -178,7 +178,7 @@ public class ArchivePublisherAgent implements Agent {
         LOGGER.info("Recording session started: recordingId={}, sessionId={}", recordingId, publication.sessionId());
 
 
-        archive.listRecordings(0, 1000, fullLogRecordingDescriptor());
+        archive.listRecordings(0, 1000, logRecordingDescriptor());
 
         // Set up a signal adapter
         final var activityListener = new ArchiveActivityListener();

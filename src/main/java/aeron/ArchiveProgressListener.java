@@ -1,4 +1,4 @@
-package aeron.archivepublisher;
+package aeron;
 
 import io.aeron.archive.client.RecordingEventsListener;
 import org.slf4j.Logger;

@@ -1,4 +1,4 @@
-package aeron.archiveclient;
+package aeron;
 
 import io.aeron.logbuffer.FragmentHandler;
 import io.aeron.logbuffer.Header;
@@ -6,9 +6,9 @@ import org.agrona.DirectBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class ArchiveClientFragmentHandler implements FragmentHandler
+public class ArchiveConsumerFragmentHandler implements FragmentHandler
 {
-    private static final Logger LOGGER = LoggerFactory.getLogger(ArchiveClientFragmentHandler.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(ArchiveConsumerFragmentHandler.class);
 
     @Override
     public void onFragment(final DirectBuffer buffer, final int offset, final int length, final Header header)

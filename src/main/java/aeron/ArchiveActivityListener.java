@@ -1,4 +1,4 @@
-package aeron.archivehost;
+package aeron;
 
 import io.aeron.archive.client.ControlEventListener;
 import io.aeron.archive.client.RecordingSignalConsumer;

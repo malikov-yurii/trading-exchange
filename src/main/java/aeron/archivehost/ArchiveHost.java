@@ -7,28 +7,23 @@ import org.agrona.concurrent.SleepingMillisIdleStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class ArchiveHost
-{
+public class ArchiveHost {
     private static final Logger LOGGER = LoggerFactory.getLogger(ArchiveHost.class);
 
-    public static void main(final String[] args)
-    {
+    public static void main(final String[] args) {
         final var archiveHost = System.getenv().get("ARCHIVEHOST");
         final var controlPort = System.getenv().get("CONTROLPORT");
         final var eventsPort = System.getenv().get("EVENTSPORT");
 
-        if (archiveHost == null || controlPort == null || eventsPort == null)
-        {
+        if (archiveHost == null || controlPort == null || eventsPort == null) {
             LOGGER.error("requires 3 env vars: ARCHIVEHOST, CONTROLPORT, EVENTSPORT");
-        }
-        else
-        {
+        } else {
             final var controlChannelPort = Integer.parseInt(controlPort);
             final var recEventsChannelPort = Integer.parseInt(eventsPort);
             final var barrier = new ShutdownSignalBarrier();
             final var hostAgent = new ArchiveHostAgent(archiveHost, controlChannelPort, recEventsChannelPort);
             final var runner =
-                new AgentRunner(new SleepingMillisIdleStrategy(), ArchiveHost::errorHandler, null, hostAgent);
+                    new AgentRunner(new SleepingMillisIdleStrategy(), ArchiveHost::errorHandler, null, hostAgent);
 
             AgentRunner.startOnThread(runner);
 
@@ -38,8 +33,7 @@ public class ArchiveHost
         }
     }
 
-    private static void errorHandler(final Throwable throwable)
-    {
+    private static void errorHandler(final Throwable throwable) {
         LOGGER.error("agent failure {}", throwable.getMessage(), throwable);
     }
 }

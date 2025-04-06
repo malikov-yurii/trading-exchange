@@ -1,4 +1,4 @@
-package aeron.archivepublisher;
+package aeron;
 
 import org.agrona.CloseHelper;
 import org.agrona.concurrent.AgentRunner;

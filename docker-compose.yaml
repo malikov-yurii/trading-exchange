@@ -5,7 +5,7 @@ services:
     shm_size: "1gb"
     build:
       context: .
-      dockerfile: aeron-arc/Dockerfile
+      dockerfile: aeron-archive-host/Dockerfile
     environment:
       - ARCHIVEHOST=archive-host
       - CONTROLPORT=17000
@@ -40,7 +40,7 @@ services:
     shm_size: "1gb"
     build:
       context: .
-      dockerfile: aeron-cli/Dockerfile
+      dockerfile: aeron-consumer/Dockerfile
     environment:
       - ARCHIVEHOST=archive-host
       - THISHOST=archive-client
