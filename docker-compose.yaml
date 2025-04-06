@@ -10,10 +10,31 @@ services:
       - ARCHIVEHOST=archive-host
       - CONTROLPORT=17000
       - EVENTSPORT=17001
+      - AERON_DIR=/dev/shm/aeron-root/dir
+      - DELETE_AERON_DIR=true
     hostname: archive-host
+    volumes:
+      - aeron-dir:/dev/shm/aeron-root
     networks:
       default:
         ipv4_address: 10.42.0.2
+
+  archive-publisher:
+    shm_size: "1gb"
+    build:
+      context: .
+      dockerfile: aeron-publisher/Dockerfile
+    environment:
+      - ARCHIVEHOST=archive-host
+      - CONTROLPORT=17000
+      - EVENTSPORT=17001
+      - AERON_DIR=/dev/shm/aeron-root/dir
+    hostname: archive-publisher
+    volumes:
+      - aeron-dir:/dev/shm/aeron-root
+    networks:
+      default:
+        ipv4_address: 10.42.0.3
 
   archive-client:
     shm_size: "1gb"
@@ -28,12 +49,18 @@ services:
     hostname: archive-client
     networks:
       default:
-        ipv4_address: 10.42.0.3
+        ipv4_address: 10.42.0.4
+
+volumes:
+  aeron-dir:
+
 networks:
   default:
     driver: bridge
     ipam:
       config:
         - subnet: 10.42.0.0/24
+
+
 
 
