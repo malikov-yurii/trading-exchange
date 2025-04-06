@@ -21,8 +21,7 @@ import java.net.NetworkInterface;
 import java.net.SocketException;
 import java.util.Enumeration;
 
-public class ArchiveClientAgent implements Agent
-{
+public class ArchiveClientAgent implements Agent {
     public static final String AERON_UDP_ENDPOINT = "aeron:udp?endpoint=";
     private static final int RECORDED_STREAM_ID = 100;
     private static final int REPLAY_STREAM_ID = 200;
@@ -41,8 +40,7 @@ public class ArchiveClientAgent implements Agent
     private Subscription replayDestinationSubs;
 
     public ArchiveClientAgent(final String archiveHost, final String thisHost, final int archiveControlPort,
-        final int archiveEventPort, final ArchiveClientFragmentHandler fragmentHandler)
-    {
+                              final int archiveEventPort, final ArchiveClientFragmentHandler fragmentHandler) {
         this.archiveHost = archiveHost;
         this.thisHost = localHost(thisHost);
         this.archiveControlPort = archiveControlPort;
@@ -53,24 +51,22 @@ public class ArchiveClientAgent implements Agent
         LOGGER.info("launching media driver");
         //launch a media driver
         this.mediaDriver = MediaDriver.launch(new MediaDriver.Context()
-            .dirDeleteOnStart(true)
-            .threadingMode(ThreadingMode.SHARED)
-            .sharedIdleStrategy(new SleepingMillisIdleStrategy()));
+                .dirDeleteOnStart(true)
+                .threadingMode(ThreadingMode.SHARED)
+                .sharedIdleStrategy(new SleepingMillisIdleStrategy()));
 
         LOGGER.info("connecting aeron; media driver directory {}", mediaDriver.aeronDirectoryName());
         //connect an aeron client
         this.aeron = Aeron.connect(new Aeron.Context()
-            .aeronDirectoryName(mediaDriver.aeronDirectoryName())
-            .idleStrategy(new SleepingMillisIdleStrategy()));
+                .aeronDirectoryName(mediaDriver.aeronDirectoryName())
+                .idleStrategy(new SleepingMillisIdleStrategy()));
 
         this.currentState = State.AERON_READY;
     }
 
     @Override
-    public int doWork()
-    {
-        switch (currentState)
-        {
+    public int doWork() {
+        switch (currentState) {
             case AERON_READY -> connectToArchive();
             case POLLING_SUBSCRIPTION -> replayDestinationSubs.poll(fragmentHandler, 100);
             default -> LOGGER.error("unknown state {}", currentState);
@@ -79,42 +75,31 @@ public class ArchiveClientAgent implements Agent
         return 0;
     }
 
-    private void connectToArchive()
-    {
+    private void connectToArchive() {
         //start an asyncConnect if one not in progress
-        if (asyncConnect == null)
-        {
+        if (asyncConnect == null) {
             LOGGER.info("connecting aeron archive");
             asyncConnect = AeronArchive.asyncConnect(new AeronArchive.Context()
-                .controlRequestChannel(AERON_UDP_ENDPOINT + archiveHost + ":" + archiveControlPort)
-                .recordingEventsChannel(AERON_UDP_ENDPOINT + archiveHost + ":" + archiveEventPort)
-                .controlResponseChannel(AERON_UDP_ENDPOINT + thisHost + ":0")
-                .aeron(aeron));
-        }
-        else
-        {
+                    .controlRequestChannel(AERON_UDP_ENDPOINT + archiveHost + ":" + archiveControlPort)
+                    .recordingEventsChannel(AERON_UDP_ENDPOINT + archiveHost + ":" + archiveEventPort)
+                    .controlResponseChannel(AERON_UDP_ENDPOINT + thisHost + ":0")
+                    .aeron(aeron));
+        } else {
             //if the archive hasn't been set yet, poll it after idling 250ms
-            if (null == archive)
-            {
+            if (null == archive) {
                 LOGGER.info("awaiting aeron archive");
                 idleStrategy.idle();
-                try
-                {
+                try {
                     archive = asyncConnect.poll();
-                }
-                catch (final TimeoutException e)
-                {
+                } catch (final TimeoutException e) {
                     LOGGER.info("timeout");
                     asyncConnect = null;
                 }
-            }
-            else
-            {
+            } else {
                 LOGGER.info("finding remote recording");
                 //archive is connected. find the recording on the remote archive host
                 final var recordingId = getRecordingId("aeron:ipc", RECORDED_STREAM_ID);
-                if (recordingId != Long.MIN_VALUE)
-                {
+                if (recordingId != Long.MIN_VALUE) {
                     //ask aeron to assign an ephemeral port for this replay
                     final var localReplayChannelEphemeral = AERON_UDP_ENDPOINT + thisHost + ":0";
                     //construct a local subscription for the remote host to replay to
@@ -124,13 +109,12 @@ public class ArchiveClientAgent implements Agent
                     LOGGER.info("actualReplayChannel={}", actualReplayChannel);
                     //replay from the archive recording the start
                     final long replaySession =
-                        archive.startReplay(recordingId, 0L, Long.MAX_VALUE, actualReplayChannel, REPLAY_STREAM_ID);
-                    LOGGER.info("ready to poll subscription, replaying to {}, image is {}", actualReplayChannel,
-                        (int)replaySession);
+                            archive.startReplay(recordingId, 0L, Long.MAX_VALUE, actualReplayChannel, REPLAY_STREAM_ID);
+                    LOGGER.info("ready to poll subscription, replaying recordingId {} to {}, image is {}",
+                            recordingId, actualReplayChannel,
+                            (int) replaySession);
                     currentState = State.POLLING_SUBSCRIPTION;
-                }
-                else
-                {
+                } else {
                     //await the remote host being ready, idle 250ms
                     idleStrategy.idle();
                 }
@@ -138,76 +122,70 @@ public class ArchiveClientAgent implements Agent
         }
     }
 
-    private long getRecordingId(final String remoteRecordedChannel, final int remoteRecordedStream)
-    {
+    private long getRecordingId(final String remoteRecordedChannel, final int remoteRecordedStream) {
         final var lastRecordingId = new MutableLong();
         final RecordingDescriptorConsumer consumer = (controlSessionId, correlationId, recordingId,
-            startTimestamp, stopTimestamp, startPosition,
-            stopPosition, initialTermId, segmentFileLength,
-            termBufferLength, mtuLength, sessionId,
-            streamId, strippedChannel, originalChannel,
-            sourceIdentity) -> lastRecordingId.set(recordingId);
+                                                      startTimestamp, stopTimestamp, startPosition,
+                                                      stopPosition, initialTermId, segmentFileLength,
+                                                      termBufferLength, mtuLength, sessionId,
+                                                      streamId, strippedChannel, originalChannel,
+                                                      sourceIdentity) -> {
+            LOGGER.info("found recordingId={} startPos={} stopPos={} sessionId={} streamId={}",
+                    recordingId, startPosition, stopPosition, sessionId, streamId);
+            lastRecordingId.set(recordingId);
+        };
 
         final var fromRecordingId = 0L;
         final var recordCount = 100;
 
         final int foundCount = archive.listRecordingsForUri(fromRecordingId, recordCount, remoteRecordedChannel,
-            remoteRecordedStream, consumer);
+                remoteRecordedStream, consumer);
+        LOGGER.info("Found total {} recordings", foundCount);
 
-        if (0 == foundCount)
-        {
+        if (0 == foundCount) {
             return Long.MIN_VALUE;
         }
 
-        return lastRecordingId.get();
+        long lastRecording = lastRecordingId.get();
+        LOGGER.info("lastRecordingId={}", lastRecording);
+        return lastRecording;
     }
 
     @Override
-    public String roleName()
-    {
+    public String roleName() {
         return "archive-client";
     }
 
     @Override
-    public void onStart()
-    {
+    public void onStart() {
         Agent.super.onStart();
         LOGGER.info("starting");
     }
 
-    public String localHost(final String fallback)
-    {
-        try
-        {
+    public String localHost(final String fallback) {
+        try {
             final Enumeration<NetworkInterface> interfaceEnumeration = NetworkInterface.getNetworkInterfaces();
-            while (interfaceEnumeration.hasMoreElements())
-            {
+            while (interfaceEnumeration.hasMoreElements()) {
                 final var networkInterface = interfaceEnumeration.nextElement();
 
-                if (networkInterface.getName().startsWith("eth0"))
-                {
+                if (networkInterface.getName().startsWith("eth0")) {
                     final Enumeration<InetAddress> interfaceAddresses = networkInterface.getInetAddresses();
-                    while (interfaceAddresses.hasMoreElements())
-                    {
-                        if (interfaceAddresses.nextElement() instanceof Inet4Address inet4Address)
-                        {
+                    while (interfaceAddresses.hasMoreElements()) {
+                        if (interfaceAddresses.nextElement() instanceof Inet4Address inet4Address) {
                             LOGGER.info("detected ip4 address as {}", inet4Address.getHostAddress());
                             return inet4Address.getHostAddress();
                         }
                     }
                 }
             }
-        }
-        catch (final SocketException e)
-        {
+        } catch (final SocketException e) {
             LOGGER.info("Failed to get address");
         }
         return fallback;
     }
 
     @Override
-    public void onClose()
-    {
+    public void onClose() {
         Agent.super.onClose();
         LOGGER.info("shutting down");
         CloseHelper.quietClose(replayDestinationSubs);

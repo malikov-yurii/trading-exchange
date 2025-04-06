@@ -4,6 +4,7 @@ import io.aeron.Aeron;
 import io.aeron.Publication;
 import io.aeron.archive.client.AeronArchive;
 import io.aeron.archive.client.ArchiveException;
+import io.aeron.archive.client.RecordingDescriptorConsumer;
 import io.aeron.archive.client.RecordingEventsAdapter;
 import io.aeron.archive.client.RecordingSignalAdapter;
 import io.aeron.archive.codecs.SourceLocation;
@@ -174,6 +175,10 @@ public class ArchivePublisherAgent implements Agent {
         }
         final long recordingId = RecordingPos.getRecordingId(counters, counterId);
         LOGGER.info("Recording is active with recordingId={}", recordingId);
+        LOGGER.info("Recording session started: recordingId={}, sessionId={}", recordingId, publication.sessionId());
+
+
+        archive.listRecordings(0, 1000, fullLogRecordingDescriptor());
 
         // Set up a signal adapter
         final var activityListener = new ArchiveActivityListener();
@@ -196,6 +201,78 @@ public class ArchivePublisherAgent implements Agent {
         // Move to next state
         currentState = State.ARCHIVE_READY;
         LOGGER.info("ArchivePublisher is now ARCHIVE_READY and will begin appending data");
+    }
+
+    private static RecordingDescriptorConsumer logRecordingDescriptor() {
+        return (controlSessionId,
+                correlationId,
+                recordingId,
+                startTimestamp,
+                stopTimestamp,
+                startPosition,
+                stopPosition,
+                initialTermId,
+                segmentFileLength,
+                termBufferLength,
+                mtuLength,
+                sessionId,
+                streamId,
+                strippedChannel,
+                originalChannel,
+                sourceIdentity) ->
+                LOGGER.info("found recordingId={} startPos={} stopPos={} sessionId={} streamId={}",
+                        recordingId, startPosition, stopPosition, sessionId, streamId);
+    }
+
+    private static RecordingDescriptorConsumer fullLogRecordingDescriptor() {
+        return (controlSessionId,
+                correlationId,
+                recordingId1,
+                startTimestamp,
+                stopTimestamp,
+                startPosition,
+                stopPosition,
+                initialTermId,
+                segmentFileLength,
+                termBufferLength,
+                mtuLength,
+                sessionId,
+                streamId,
+                strippedChannel,
+                originalChannel,
+                sourceIdentity) -> LOGGER.info("Recording descriptor " +
+                        "controlSessionId={}, " +
+                        "correlationId={}, " +
+                        "recordingId={}, " +
+                        "startTimestamp={}, " +
+                        "stopTimestamp={}, " +
+                        "startPosition={}, " +
+                        "stopPosition={}, " +
+                        "initialTermId={}, " +
+                        "segmentFileLength={}, " +
+                        "termBufferLength={}, " +
+                        "mtuLength={}, " +
+                        "sessionId={}, " +
+                        "streamId={}, " +
+                        "strippedChannel={}, " +
+                        "originalChannel={}, " +
+                        "sourceIdentity={}",
+                controlSessionId,
+                correlationId,
+                recordingId1,
+                startTimestamp,
+                stopTimestamp,
+                startPosition,
+                stopPosition,
+                initialTermId,
+                segmentFileLength,
+                termBufferLength,
+                mtuLength,
+                sessionId,
+                streamId,
+                strippedChannel,
+                originalChannel,
+                sourceIdentity);
     }
 
     private boolean recordingExists(AeronArchive archive, String channel, int streamId) {
