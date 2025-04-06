@@ -3,6 +3,7 @@ package aeron.archivepublisher;
 import io.aeron.Aeron;
 import io.aeron.Publication;
 import io.aeron.archive.client.AeronArchive;
+import io.aeron.archive.client.ArchiveException;
 import io.aeron.archive.client.RecordingEventsAdapter;
 import io.aeron.archive.client.RecordingSignalAdapter;
 import io.aeron.archive.codecs.SourceLocation;
@@ -144,7 +145,25 @@ public class ArchivePublisherAgent implements Agent {
 
         // Start recording that publication
         LOGGER.info("Starting recording on aeron:ipc, streamId={}", STREAM_ID);
-        archive.startRecording("aeron:ipc", STREAM_ID, SourceLocation.LOCAL);
+
+
+        try {
+//            archive.startRecording("aeron:ipc", STREAM_ID, SourceLocation.LOCAL);
+//            LOGGER.info("Started recording on aeron:ipc, streamId={}", STREAM_ID);
+            final String channel = "aeron:ipc";
+            if (!recordingExists(archive, channel, STREAM_ID)) {
+                archive.startRecording(channel, STREAM_ID, SourceLocation.LOCAL);
+                LOGGER.info("Started recording on {}, streamId={}", channel, STREAM_ID);
+            } else {
+                LOGGER.info("Recording already exists for {}, streamId={}", channel, STREAM_ID);
+            }
+        } catch (ArchiveException ex) {
+            if (ex.getMessage() != null && ex.getMessage().contains("recording exists")) {
+                LOGGER.info("Recording already exists for streamId={}, continuing...", STREAM_ID);
+            } else {
+                throw ex; // unexpected error, rethrow
+            }
+        }
 
         // Wait for the archive to see that session
         final var counters = aeron.countersReader();
@@ -177,6 +196,27 @@ public class ArchivePublisherAgent implements Agent {
         // Move to next state
         currentState = State.ARCHIVE_READY;
         LOGGER.info("ArchivePublisher is now ARCHIVE_READY and will begin appending data");
+    }
+
+    private boolean recordingExists(AeronArchive archive, String channel, int streamId) {
+        final boolean[] exists = {false};
+
+        archive.listRecordingsForUri(
+                0, // fromRecordingId
+                100, // recordCount to search through
+                channel, // channelFragment (can be partial)
+                streamId,
+                (controlSessionId, correlationId, recordingId, startTimestamp, stopTimestamp,
+                 startPosition, stopPosition, initialTermId, segmentFileLength,
+                 termBufferLength, mtuLength, sessionId, streamId1,
+                 strippedChannel, originalChannel, sourceIdentity) -> {
+                    if (originalChannel.contains(channel) && streamId1 == streamId) {
+                        exists[0] = true;
+                    }
+                }
+        );
+
+        return exists[0];
     }
 
     private void appendDataIfNeeded() {
