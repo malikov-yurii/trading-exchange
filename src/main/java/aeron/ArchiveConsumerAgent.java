@@ -91,13 +91,14 @@ public class ArchiveConsumerAgent implements Agent {
         this.fragmentHandler = fragmentHandler;
         this.idleStrategy = new SleepingMillisIdleStrategy(250);
 
-        log.info("{} Launching media driver", this.name);
+        log.info("{} | Launching media driver", this.name);
         this.mediaDriver = MediaDriver.launch(new MediaDriver.Context()
+                .aeronDirectoryName(AeronUtils.getAeronDirLocal())
                 .dirDeleteOnStart(true)
                 .threadingMode(ThreadingMode.SHARED)
                 .sharedIdleStrategy(new SleepingMillisIdleStrategy()));
 
-        log.info("{} Connecting Aeron; media driver directory {}", this.name, mediaDriver.aeronDirectoryName());
+        log.info("{} | Connecting Aeron; media driver directory {}", this.name, mediaDriver.aeronDirectoryName());
         this.aeron = Aeron.connect(new Aeron.Context()
                 .aeronDirectoryName(mediaDriver.aeronDirectoryName())
                 .idleStrategy(new SleepingMillisIdleStrategy()));
@@ -130,7 +131,7 @@ public class ArchiveConsumerAgent implements Agent {
                         }
                     }
                     if (finished) {
-                        log.info("{} Finished replaying recording {}", this.name,
+                        log.info("{} | Finished replaying recording {}", this.name,
                                 recordings.get(currentRecordingIndex).recordingId);
                         // Close current subscription before starting next replay.
                         CloseHelper.quietClose(replayDestinationSubscription);
@@ -154,7 +155,7 @@ public class ArchiveConsumerAgent implements Agent {
 
     private void connectToArchive() {
         if (asyncConnect == null) {
-            log.info("{} Connecting to Aeron archive", this.name);
+            log.info("{} | Connecting to Aeron archive", this.name);
             asyncConnect = AeronArchive.asyncConnect(new AeronArchive.Context()
                     .controlRequestChannel(AERON_UDP_ENDPOINT + archiveHost + ":" + archiveControlPort)
                     .recordingEventsChannel(AERON_UDP_ENDPOINT + archiveHost + ":" + archiveEventPort)
@@ -162,12 +163,12 @@ public class ArchiveConsumerAgent implements Agent {
                     .aeron(aeron));
         } else {
             if (archive == null) {
-                log.info("{} Awaiting Aeron archive connection", this.name);
+                log.info("{} | Awaiting Aeron archive connection", this.name);
                 idleStrategy.idle();
                 try {
                     archive = asyncConnect.poll();
                 } catch (final TimeoutException e) {
-                    log.info("{} Timeout connecting to archive, retrying", this.name);
+                    log.info("{} | Timeout connecting to archive, retrying", this.name);
                     asyncConnect = null;
                 }
             } else {
@@ -175,7 +176,7 @@ public class ArchiveConsumerAgent implements Agent {
                 if (recordings == null) {
                     recordings = fetchRecordings();
                     if (recordings.isEmpty()) {
-                        log.info("{} No recordings found, stopping...", this.name);
+                        log.info("{} | No recordings found, stopping...", this.name);
                         onClose();
                         return;
                     }
@@ -187,7 +188,7 @@ public class ArchiveConsumerAgent implements Agent {
 
                     var lastRec = recordings.getLast();
                     if (replayStrategy == ReplayStrategy.REPLAY_OLD && lastRec.stopPosition < 0) {
-                        log.info("{} Replay strategy is REPLAY_OLD, but last recording stop position is {}. ", this.name,
+                        log.info("{} | Replay strategy is REPLAY_OLD, but last recording stop position is {}. ", this.name,
                                 lastRec.stopPosition);
                         // means the latest recording has not yet finished, and we need to wait for it to finish
 
@@ -216,17 +217,17 @@ public class ArchiveConsumerAgent implements Agent {
         RecordingInfo last = this.recordings.getLast();
         recordingInfos.stream().filter(r -> r.recordingId == last.recordingId).findFirst().ifPresent(recording -> {
             if (recording.stopPosition > 0) {
-                log.info("{} Latest recording recordingId {} finished, stopping scheduler", this.name, recording.recordingId);
+                log.info("{} | Latest recording recordingId {} finished, stopping scheduler", this.name, recording.recordingId);
                 scheduledFuture.cancel(false);
                 currentReplayStopPosition = recording.stopPosition;
                 if (lastImagePosition >= currentReplayStopPosition) {
-                    log.info("{} Latest recording already fully replayed, stopping consumer. " +
+                    log.info("{} | Latest recording already fully replayed, stopping consumer. " +
                                     "lastImagePosition {}. currentReplayStopPosition {}. {}", this.name,
                             lastImagePosition, currentReplayStopPosition, this.recordings.getLast().recordingId);
                     onClose();
                 }
             } else {
-                log.info("{} Latest recording not finished yet", this.name);
+                log.info("{} | Latest recording not finished yet", this.name);
             }
         });
     }
@@ -252,7 +253,7 @@ public class ArchiveConsumerAgent implements Agent {
         currentReplayStopPosition = isLatest ? Long.MAX_VALUE : recording.stopPosition;
         final long replaySession = archive.startReplay(recording.recordingId,
                 recording.startPosition, replayLength, actualReplayChannel, REPLAY_STREAM_ID);
-        log.info("{} Replaying recordingId {} from {} to {} (isLatest: {}), replaySession {}", this.name,
+        log.info("{} | Replaying recordingId {} from {} to {} (isLatest: {}), replaySession {}", this.name,
                 recording.recordingId, recording.startPosition, recording.stopPosition, isLatest, replaySession);
     }
 
@@ -272,14 +273,14 @@ public class ArchiveConsumerAgent implements Agent {
                                                       termBufferLength, mtuLength, sessionId,
                                                       streamId, strippedChannel, originalChannel,
                                                       sourceIdentity) -> {
-            log.info("{} Found startTimestamp={} recordingId={} startPos={} stopPos={} sessionId={} streamId={}", this.name,
+            log.info("{} | Found startTimestamp={} recordingId={} startPos={} stopPos={} sessionId={} streamId={}", this.name,
                     Instant.ofEpochMilli(startTimestamp), recordingId, startPosition, stopPosition, sessionId, streamId);
             recordingList.add(new RecordingInfo(recordingId, startPosition, stopPosition));
         };
 
         final int foundCount = archive.listRecordingsForUri(0, 100, remoteRecordedChannel,
                 remoteRecordedStream, consumer);
-        log.info("{} Total recordings found: {}", this.name, foundCount);
+        log.info("{} | Total recordings found: {}", this.name, foundCount);
 
         // Sort recordings by their start position so that the oldest is replayed first.
         // Or sort by r.startTimestamp
@@ -295,7 +296,7 @@ public class ArchiveConsumerAgent implements Agent {
     @Override
     public void onStart() {
         Agent.super.onStart();
-        log.info("{} ArchiveClientAgent starting", this.name);
+        log.info("{} | ArchiveClientAgent starting", this.name);
     }
 
     public String localHost(final String fallback) {
@@ -308,7 +309,7 @@ public class ArchiveConsumerAgent implements Agent {
                     while (interfaceAddresses.hasMoreElements()) {
                         final InetAddress addr = interfaceAddresses.nextElement();
                         if (addr instanceof Inet4Address inet4Address) {
-                            log.info("{} Detected IPv4 address: {}", this.name, inet4Address.getHostAddress());
+                            log.info("{} | Detected IPv4 address: {}", this.name, inet4Address.getHostAddress());
                             return inet4Address.getHostAddress();
                         }
                     }
@@ -323,7 +324,7 @@ public class ArchiveConsumerAgent implements Agent {
     @Override
     public void onClose() {
         Agent.super.onClose();
-        log.info("{} Shutting down ArchiveClientAgent", this.name);
+        log.info("{} | Shutting down ArchiveClientAgent", this.name);
         CloseHelper.quietClose(replayDestinationSubscription);
         CloseHelper.quietClose(archive);
         CloseHelper.quietClose(aeron);

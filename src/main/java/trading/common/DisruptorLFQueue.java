@@ -77,9 +77,9 @@ public class DisruptorLFQueue<T> implements LFQueue<T> {
         try {
             Event<T> event = ringBuffer.get(sequence);
             event.request = request;
-//            log.info(name + " Offered sequence={} | {}", sequence, request);
+//            log.info(name + " | Offered sequence={} | {}", sequence, request);
         } catch (Exception ex) {
-            log.error(name + " Error offering request", ex);
+            log.error(name + " | Error offering request", ex);
         } finally {
             ringBuffer.publish(sequence);
         }
@@ -89,11 +89,11 @@ public class DisruptorLFQueue<T> implements LFQueue<T> {
     public void subscribe(Consumer<T> consumer) {
         disruptor.handleEventsWith((event, sequence, endOfBatch) -> {
             try {
-//                log.info(name + " Passing to consumer sequence={} endOfBatch={} | {}", sequence, endOfBatch, event.request);
+//                log.info(name + " | Passing to consumer sequence={} endOfBatch={} | {}", sequence, endOfBatch, event.request);
                 consumer.accept(event.request);
                 event.request = null; // Clear to reduce GC pressure
             } catch (Exception ex) {
-                log.error(name + " Error handling event", ex);
+                log.error(name + " | Error handling event", ex);
             }
         });
     }

@@ -17,6 +17,72 @@ x-common-exchange-env: &common-exchange-env
   EVENTSPORT: 17001
 
 services:
+
+  trader-r:
+    container_name: trader-r
+    shm_size: "1gb"
+    build:
+      context: .
+      dockerfile: trader/Dockerfile
+    environment:
+      CLIENT_ID: 1
+      ALGO_TYPE: RANDOM
+      ORDER_SERVER_1_URI: ws://exchange-1:8091/ws
+      ORDER_SERVER_2_URI: ws://exchange-2:8091/ws
+      THISHOST: "trader-r"
+      <<: *common-exchange-env
+    hostname: trader-r
+    volumes:
+      - aeron-dir:/dev/shm/aeron-root
+    depends_on:
+      - exchange-1
+      - zookeeper
+    networks:
+      default:
+        ipv4_address: 10.42.0.5
+
+  exchange-1:
+    container_name: exchange-1
+    shm_size: "1gb"
+    build:
+      context: .
+      dockerfile: exchange/Dockerfile
+    environment:
+      INSTANCE_ID: "1"
+      THISHOST: "exchange-1"
+      WS_PORT: "8091"
+      <<: *common-exchange-env
+    hostname: exchange-1
+    volumes:
+      - aeron-dir:/dev/shm/aeron-root
+    depends_on:
+      - archive-host
+      - zookeeper
+    networks:
+      default:
+        ipv4_address: 10.42.0.3
+
+  exchange-2:
+    container_name: exchange-2
+    shm_size: "1gb"
+    build:
+      context: .
+      dockerfile: exchange/Dockerfile
+    environment:
+      INSTANCE_ID: "2"
+      THISHOST: "exchange-2"
+      WS_PORT: "8092"
+      <<: *common-exchange-env
+    hostname: exchange-2
+    volumes:
+      - aeron-dir:/dev/shm/aeron-root
+    depends_on:
+      - archive-host
+      - zookeeper
+    networks:
+      default:
+        ipv4_address: 10.42.0.4
+
   archive-host:
     container_name: archive-host
     shm_size: "1gb"
@@ -33,27 +99,6 @@ services:
       default:
         ipv4_address: 10.42.0.2
 
-  exchange-1:
-    container_name: exchange-1
-    shm_size: "1gb"
-    build:
-      context: .
-      dockerfile: exchange/Dockerfile
-    environment:
-      INSTANCE_ID: "1"
-      WS_PORT: "8091"
-      <<: *common-exchange-env
-    hostname: exchange-1
-    volumes:
-      - aeron-dir:/dev/shm/aeron-root
-    depends_on:
-      - archive-host
-      - zookeeper
-    networks:
-      default:
-        ipv4_address: 10.42.0.3
-
-
   zookeeper:
     image: bitnami/zookeeper:latest
     container_name: zookeeper
@@ -67,38 +112,6 @@ services:
     networks:
       default:
         ipv4_address: 10.42.0.10
-
-#  archive-publisher:
-#    shm_size: "1gb"
-#    build:
-#      context: .
-#      dockerfile: aeron-publisher/Dockerfile
-#    environment:
-#      - ARCHIVEHOST=archive-host
-#      - CONTROLPORT=17000
-#      - EVENTSPORT=17001
-#      - AERON_DIR=/dev/shm/aeron-root/dir
-#    hostname: archive-publisher
-#    volumes:
-#      - aeron-dir:/dev/shm/aeron-root
-#    networks:
-#      default:
-#        ipv4_address: 10.42.0.3
-
-#  archive-client:
-#    shm_size: "1gb"
-#    build:
-#      context: .
-#      dockerfile: aeron-consumer/Dockerfile
-#    environment:
-#      - ARCHIVEHOST=archive-host
-#      - THISHOST=archive-client
-#      - CONTROLPORT=17000
-#      - EVENTSPORT=17001
-#    hostname: archive-client
-#    networks:
-#      default:
-#        ipv4_address: 10.42.0.4
 
 volumes:
   aeron-dir:

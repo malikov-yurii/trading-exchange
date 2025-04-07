@@ -58,15 +58,15 @@ public class MarketDataSnapshotPublisher {
         int streamId = 2001;
         this.aeronPublisher = new AeronPublisher(channel, streamId, "MD-SNAPSHOT");
 
-        int repeatInterval = 60;
+        int snapshotInterval = 600; // TODO: make this configurable
         scheduler.scheduleAtFixedRate(
                 this::publishSnapshot,
-                60, // initial delay
-                repeatInterval, // repeat interval
+                600, // initial delay
+                snapshotInterval, // repeat interval
                 TimeUnit.SECONDS
         );
         log.info("MarketDataSnapshotPublisher started. Snapshots go to {}:{} every {}s",
-                channel, streamId, repeatInterval);
+                channel, streamId, snapshotInterval);
     }
 
     /**

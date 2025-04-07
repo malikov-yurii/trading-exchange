@@ -84,10 +84,11 @@ public class ArchivePublisher {
         this.name = name;
         this.requireConnectedConsumer = requireConnectedConsumer;
         aeronDir = AeronUtils.getAeronDirRemote();
+        start();
     }
 
     public void start() {
-        log.info("start. Aeron directory is {}", aeronDir);
+        log.info(name + " | ---> Start. Aeron directory is {}", aeronDir);
         this.aeron = Aeron.connect(
                 new Aeron.Context()
                         .aeronDirectoryName(aeronDir)
@@ -101,7 +102,7 @@ public class ArchivePublisher {
         final var controlResponseChannel = AERON_UDP_ENDPOINT + "localhost" + ":3004";
         final var recordingEventsChannel = "aeron:udp?control-mode=dynamic|control=" + archiveHost + ":" + recordingEventsPort;
 
-        log.info("ArchivePublisher connecting to archive. archiveHost {}. controlRequestChannel {}. " +
+        log.info(name + " | ArchivePublisher connecting to archive. archiveHost {}. controlRequestChannel {}. " +
                         "controlResponseChannel {}. recordingEventsChannel {}. aeronDir {}",
                 archiveHost, controlRequestChannel, controlResponseChannel, recordingEventsChannel, aeronDir);
         archive = AeronArchive.connect(new AeronArchive.Context()
@@ -112,7 +113,7 @@ public class ArchivePublisher {
                 .recordingEventsChannel(recordingEventsChannel)
                 .idleStrategy(new SleepingMillisIdleStrategy()));
 
-        log.info("Creating publication on channel={}, streamId={}", CHANNEL, streamId);
+        log.info(name +  " Creating publication on channel={}, streamId={}", CHANNEL, streamId);
         publication = aeron.addExclusivePublication(CHANNEL, streamId);
 
         startRecordings();
@@ -120,21 +121,21 @@ public class ArchivePublisher {
 
         setupMonitoring();
         currentState = State.ARCHIVE_READY;
-        log.info("ArchivePublisher is now ARCHIVE_READY");
+        log.info(name +  " ArchivePublisher is now ARCHIVE_READY");
     }
 
     private void startRecordings() {
-        log.info("Starting recording on channel={}, streamId={}", CHANNEL, streamId);
+        log.info(name +  " Starting recording on channel={}, streamId={}", CHANNEL, streamId);
         try {
             if (!AeronUtils.recordingExists(archive, CHANNEL, streamId)) {
                 archive.startRecording(CHANNEL, streamId, SourceLocation.LOCAL);
-                log.info("Started recording on {}, streamId={}", CHANNEL, streamId);
+                log.info(name +  " Started recording on {}, streamId={}", CHANNEL, streamId);
             } else {
-                log.info("Recording already exists for {}, streamId={}", CHANNEL, streamId);
+                log.info(name +  " Recording already exists for {}, streamId={}", CHANNEL, streamId);
             }
         } catch (ArchiveException ex) {
             if (ex.getMessage() != null && ex.getMessage().contains("recording exists")) {
-                log.info("Recording already exists for streamId={}, continuing...", streamId);
+                log.info(name +  " Recording already exists for streamId={}, continuing...", streamId);
             } else {
                 throw ex; // unexpected error, rethrow
             }
@@ -148,7 +149,7 @@ public class ArchivePublisher {
             counterId = RecordingPos.findCounterIdBySession(counters, publication.sessionId());
         }
         final long recordingId = RecordingPos.getRecordingId(counters, counterId);
-        log.info("Recording session started: recordingId={}, sessionId={}", recordingId, publication.sessionId());
+        log.info(name +  " Recording session started: recordingId={}, sessionId={}", recordingId, publication.sessionId());
     }
 
     public void publish(DirectBuffer buffer, int offset, int length) {
@@ -175,7 +176,7 @@ public class ArchivePublisher {
 //        if (log.isDebugEnabled()) {
 //            log.debug("[{}] Published msg len={}. Result: {}", name, length, result);
 //        }
-        log.info("[{}] Published msg len={}. Result: {}", name, length, result);
+        log.info(name +  " [{}] Published msg len={}. Result: {}", name, length, result);
     }
 
     private void setupMonitoring() {
@@ -218,7 +219,7 @@ public class ArchivePublisher {
     }
 
     public void close() {
-        log.info("ArchivePublisher shutting down");
+        log.info(name +  " ArchivePublisher shutting down");
         currentState = State.SHUTTING_DOWN;
         CloseHelper.quietClose(publication);
         CloseHelper.quietClose(archive);

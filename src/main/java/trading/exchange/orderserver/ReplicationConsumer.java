@@ -64,21 +64,14 @@ public class ReplicationConsumer implements Runnable {
 
         FragmentHandler fragmentHandler = (buffer, offset, length, header) -> processReplicationEvent(buffer, offset, length);
 
-        //        replicationConsumer = new AeronConsumer(aeronIp,
-//                Utils.env("REPLICATION_PORT", "40551"),
-//                ),
-//                fragmentHandler, "REPLICATION");
-
         int streamId = Integer.parseInt(Utils.env("REPLICATION_STREAM", "3001"));
         final ArchiveConsumerAgent hostAgent =
                 new ArchiveConsumerAgent(streamId, fragmentHandler,
-                        ArchiveConsumerAgent.ReplayStrategy.REPLAY_OLD, "REPLICATION");
+                        ArchiveConsumerAgent.ReplayStrategy.REPLAY_OLD_AND_SUBSCRIBE, "REPLICATION");
 
         runner = new AgentRunner(new SleepingMillisIdleStrategy(), ArchiveConsumerAgent::errorHandler, null, hostAgent);
         AgentRunner.startOnThread(runner);
 
-
-//        replicationConsumer.run();
         log.info("ReplicationConsumer shutting down");
     }
 

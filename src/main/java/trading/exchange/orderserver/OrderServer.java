@@ -79,11 +79,11 @@ public class OrderServer {
     /**
      * Constructor.
      * @param clientRequests  The queue where client OrderRequests are placed
-     * @param responseQueue   The queue from which OrderMessages will be read and sent to clients
+     * @param clientResponses   The queue from which OrderMessages will be read and sent to clients
      * @param leadershipManager Manages whether this server is leader or follower
      */
     public OrderServer(LFQueue<OrderRequest> clientRequests,
-                       LFQueue<OrderMessage> responseQueue,
+                       LFQueue<OrderMessage> clientResponses,
                        LeadershipManager leadershipManager) {
         this.clientRequests = clientRequests;
         this.leadershipManager = leadershipManager;
@@ -92,7 +92,7 @@ public class OrderServer {
         this.listenPort = Integer.parseInt(Utils.env("WS_PORT", "8080"));
 
         // Subscribe to responses; process them in processResponse method
-        responseQueue.subscribe(this::processResponse);
+        clientResponses.subscribe(this::processResponse);
     }
 
     /**
@@ -139,7 +139,7 @@ public class OrderServer {
                             pipeline.addLast(new HttpObjectAggregator(65536));
                             pipeline.addLast(new ChunkedWriteHandler());
                             // WebSocket upgrade handler
-                            pipeline.addLast(new WebSocketServerProtocolHandler("/", null, true, 65536));
+                            pipeline.addLast(new WebSocketServerProtocolHandler("/ws", null, true, 65536));
                             // Custom handler to manage frames
                             pipeline.addLast(new WebSocketFrameHandler());
                         }
@@ -251,61 +251,69 @@ public class OrderServer {
      * Called when a new OrderMessage is ready to be sent to the client.
      */
     private void processResponse(OrderMessage orderMessage) {
-        // If we're not the leader, we don't publish.
-        if (leadershipManager.isFollower()) {
-            log.info("Not Publishing {}", orderMessage);
-            return;
-        }
-        if (orderMessage == null) {
-            log.error("processResponse. Received null response");
-            return;
-        }
+        try {
+            if (leadershipManager.isFollower()) {
+                log.info("Not Publishing {}", orderMessage);
+                return;
+            }
+            if (orderMessage == null) {
+                log.error("processResponse. Received null response");
+                return;
+            }
+//            log.info("processResponse. {}", orderMessage);
 
-        long seq = respSeqNum.getAndIncrement();
-        orderMessage.setSeqNum(seq);
+            long seq = respSeqNum.getAndIncrement();
+            orderMessage.setSeqNum(seq);
 
-        long clientId = orderMessage.getClientId();
-        Channel channel = channelsByClientId.get(clientId);
-        if (channel == null) {
-            log.error("processResponse. Client channel not found for clientId={}", clientId);
-            return;
-        }
+            long clientId = orderMessage.getClientId();
+            Channel channel = channelsByClientId.get(clientId);
+            if (channel == null) {
+                log.error("processResponse. Client channel not found for clientId={}", clientId);
+                return;
+            }
 
-        ExpandableDirectByteBuffer buffer = new ExpandableDirectByteBuffer(128);
-        int length = OrderMessageSerDe.serialize(orderMessage, buffer, 0);
+            ExpandableDirectByteBuffer buffer = new ExpandableDirectByteBuffer(128);
+            int serializedLength = OrderMessageSerDe.serialize(orderMessage, buffer, 0);
 
-        // Indefinite retry loop, mimicking the old code's approach.
-        // This is NOT recommended in Netty's event loop, so be aware of potential blocking.
-        ByteBuf msg = Unpooled.copiedBuffer(buffer.byteArray(), 0, length);
-        int attempt = 0;
-        while (true) {
-            try {
-                ChannelFuture future = channel.writeAndFlush(new BinaryWebSocketFrame(msg.retainedDuplicate())).sync();
-                if (future.isSuccess()) {
-                    break; // Successfully sent
-                } else {
-                    // Sleep a bit before retry
-                    attempt++;
-                    Thread.sleep(attempt);
-                }
-            } catch (InterruptedException e) {
-                log.error("Error while trying to pause between retries", e);
-                Thread.currentThread().interrupt();
-                break;
-            } catch (Exception e) {
-                log.error("Failed to send response {}, attempt={}", orderMessage, attempt, e);
-                attempt++;
+            // Indefinite retry loop, mimicking the old code's approach.
+            // This is NOT recommended in Netty's event loop, so be aware of potential blocking.
+            byte[] bytes = new byte[serializedLength];
+            buffer.getBytes(0, bytes);  // Always safe, regardless of internal backing
+            ByteBuf msg = Unpooled.copiedBuffer(bytes);
+
+            int attempt = 0;
+            while (true) {
                 try {
-                    Thread.sleep(attempt);
-                } catch (InterruptedException ie) {
-                    log.error("Interrupted while retry-sleeping", ie);
+                    ChannelFuture future = channel.writeAndFlush(new BinaryWebSocketFrame(msg.retainedDuplicate())).sync();
+                    if (future.isSuccess()) {
+                        break; // Successfully sent
+                    } else {
+                        // Sleep a bit before retry
+                        attempt++;
+                        Thread.sleep(attempt);
+                    }
+                } catch (InterruptedException e) {
+                    log.error("Error while trying to pause between retries", e);
                     Thread.currentThread().interrupt();
                     break;
+                } catch (Exception e) {
+                    log.error("Failed to send response {}, attempt={}", orderMessage, attempt, e);
+                    attempt++;
+                    try {
+                        Thread.sleep(attempt);
+                    } catch (InterruptedException ie) {
+                        log.error("Interrupted while retry-sleeping", ie);
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
                 }
             }
+
+            log.info("Sent response {}. OK", orderMessage);
+        } catch (Exception e) {
+            log.error("processResponse. Error processing response", e);
         }
 
-        log.info("Sent response {}. OK", orderMessage);
     }
 
     /**
