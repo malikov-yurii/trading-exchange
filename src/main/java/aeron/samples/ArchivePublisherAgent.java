@@ -1,16 +1,12 @@
-package trading.common.aeron;
+package aeron.samples;
 
 import io.aeron.Aeron;
 import io.aeron.Publication;
 import io.aeron.archive.client.AeronArchive;
 import io.aeron.archive.client.ArchiveException;
-import io.aeron.archive.client.ControlEventListener;
 import io.aeron.archive.client.RecordingDescriptorConsumer;
 import io.aeron.archive.client.RecordingEventsAdapter;
 import io.aeron.archive.client.RecordingSignalAdapter;
-import io.aeron.archive.client.RecordingSignalConsumer;
-import io.aeron.archive.codecs.ControlResponseCode;
-import io.aeron.archive.codecs.RecordingSignal;
 import io.aeron.archive.codecs.SourceLocation;
 import io.aeron.archive.status.RecordingPos;
 import org.agrona.CloseHelper;
@@ -361,22 +357,5 @@ public class ArchivePublisherAgent implements Agent {
         }
         return fallback;
     }
-
-    public static class ArchiveActivityListener implements ControlEventListener, RecordingSignalConsumer {
-        private static final Logger LOGGER = LoggerFactory.getLogger(ArchiveActivityListener.class);
-
-        @Override
-        public void onResponse(final long controlSessionId, final long correlationId, final long relevantId,
-                               final ControlResponseCode code, final String errorMessage) {
-            LOGGER.info("code={} error={}", code, errorMessage);
-        }
-
-        @Override
-        public void onSignal(final long controlSessionId, final long correlationId, final long recordingId,
-                             final long subscriptionId, final long position, final RecordingSignal signal) {
-            LOGGER.info("recordingId={} position={}, signal={}", recordingId, position, signal);
-        }
-    }
-
 
 }

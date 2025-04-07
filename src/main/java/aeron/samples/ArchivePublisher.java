@@ -1,4 +1,4 @@
-package trading.common.aeron.archivehost;
+package aeron.samples;
 
 import org.agrona.CloseHelper;
 import org.agrona.concurrent.AgentRunner;
@@ -7,8 +7,8 @@ import org.agrona.concurrent.SleepingMillisIdleStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class ArchiveHost {
-    private static final Logger LOGGER = LoggerFactory.getLogger(ArchiveHost.class);
+public class ArchivePublisher {
+    private static final Logger LOGGER = LoggerFactory.getLogger(ArchivePublisher.class);
 
     public static void main(final String[] args) {
         final var archiveHost = System.getenv().get("ARCHIVEHOST");
@@ -21,9 +21,9 @@ public class ArchiveHost {
             final var controlChannelPort = Integer.parseInt(controlPort);
             final var recEventsChannelPort = Integer.parseInt(eventsPort);
             final var barrier = new ShutdownSignalBarrier();
-            final var hostAgent = new ArchiveHostAgent(archiveHost, controlChannelPort, recEventsChannelPort);
+            final var hostAgent = new ArchivePublisherAgent(archiveHost, controlChannelPort, recEventsChannelPort);
             final var runner =
-                    new AgentRunner(new SleepingMillisIdleStrategy(), ArchiveHost::errorHandler, null, hostAgent);
+                    new AgentRunner(new SleepingMillisIdleStrategy(), ArchivePublisher::errorHandler, null, hostAgent);
 
             AgentRunner.startOnThread(runner);
 

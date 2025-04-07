@@ -3,15 +3,28 @@ package trading.exchange.orderserver;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import io.netty.channel.*;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.ChannelId;
+import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelOption;
+import io.netty.channel.ChannelPipeline;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.http.HttpObjectAggregator;
 import io.netty.handler.codec.http.HttpServerCodec;
-import io.netty.handler.codec.http.websocketx.*;
-import io.netty.handler.stream.ChunkedWriteHandler;
+import io.netty.handler.codec.http.websocketx.BinaryWebSocketFrame;
+import io.netty.handler.codec.http.websocketx.CloseWebSocketFrame;
+import io.netty.handler.codec.http.websocketx.PingWebSocketFrame;
+import io.netty.handler.codec.http.websocketx.PongWebSocketFrame;
+import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
+import io.netty.handler.codec.http.websocketx.WebSocketFrame;
 import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
+import io.netty.handler.stream.ChunkedWriteHandler;
 import org.agrona.DirectBuffer;
 import org.agrona.ExpandableDirectByteBuffer;
 import org.agrona.concurrent.ShutdownSignalBarrier;
@@ -29,8 +42,6 @@ import trading.exchange.LeadershipManager;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
-
-import static trading.common.Utils.env;
 
 /**
  * A Netty-based implementation of what was previously a Babl-based WebSocket server.
@@ -56,7 +67,6 @@ public class OrderServer {
     private final String bindAddress;
     private final int listenPort;
 
-    private Thread replicationConsumerThread;
     private Thread requestSequencerThread;
 
     // Netty groups and server channel
@@ -190,8 +200,7 @@ public class OrderServer {
 
     private synchronized void startReplicationConsumer() {
         replicationConsumer = new ReplicationConsumer(clientRequests);
-        replicationConsumerThread = new Thread(replicationConsumer, "ReplicationConsumerThread");
-        replicationConsumerThread.start();
+        replicationConsumer.run();
     }
 
     private synchronized void stopReplicationConsumer() {
@@ -199,16 +208,6 @@ public class OrderServer {
         if (replicationConsumer != null) {
             replicationConsumer.shutdown();
         }
-        if (replicationConsumerThread != null && replicationConsumerThread.isAlive()) {
-            replicationConsumerThread.interrupt();
-            try {
-                replicationConsumerThread.join(2000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new RuntimeException(e);
-            }
-        }
-        replicationConsumerThread = null;
         replicationConsumer = null;
         log.info("stopReplicationConsumer. Done");
     }

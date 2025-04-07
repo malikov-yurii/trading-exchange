@@ -5,11 +5,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trading.api.MarketUpdate;
 import trading.api.MarketUpdateSerDe;
-import trading.common.AeronPublisher;
+import aeron.AeronPublisher;
 import trading.common.LFQueue;
 import trading.common.Utils;
 import trading.exchange.LeadershipManager;
-import trading.exchange.ZooKeeperLeadershipManager;
 
 import java.util.concurrent.atomic.AtomicLong;
 

@@ -7,6 +7,7 @@ import io.aeron.archive.client.RecordingDescriptorConsumer;
 import io.aeron.driver.MediaDriver;
 import io.aeron.driver.ThreadingMode;
 import io.aeron.exceptions.TimeoutException;
+import io.aeron.logbuffer.FragmentHandler;
 import org.agrona.CloseHelper;
 import org.agrona.collections.MutableLong;
 import org.agrona.concurrent.Agent;
@@ -31,7 +32,7 @@ public class LatestRecordingReplayListenerAgent implements Agent {
     private final String thisHost;
     private final int archiveControlPort;
     private final int archiveEventPort;
-    private final ArchiveConsumerFragmentHandler fragmentHandler;
+    private final FragmentHandler fragmentHandler;
     private final Aeron aeron;
     private final IdleStrategy idleStrategy;
     private AeronArchive archive;
@@ -40,7 +41,7 @@ public class LatestRecordingReplayListenerAgent implements Agent {
     private Subscription replayDestinationSubs;
 
     public LatestRecordingReplayListenerAgent(final String archiveHost, final String thisHost, final int archiveControlPort,
-                                              final int archiveEventPort, final ArchiveConsumerFragmentHandler fragmentHandler) {
+                                              final int archiveEventPort, final FragmentHandler fragmentHandler) {
         this.archiveHost = archiveHost;
         this.thisHost = localHost(thisHost);
         this.archiveControlPort = archiveControlPort;
@@ -189,5 +190,13 @@ public class LatestRecordingReplayListenerAgent implements Agent {
         CloseHelper.quietClose(aeron);
         CloseHelper.quietClose(mediaDriver);
     }
+
+    public enum State {
+        AERON_READY,
+        ARCHIVE_READY,
+        POLLING_SUBSCRIPTION,
+        SHUTTING_DOWN
+    }
+
 
 }

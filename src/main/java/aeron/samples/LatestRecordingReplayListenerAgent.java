@@ -1,4 +1,4 @@
-package trading.common.aeron;
+package aeron.samples;
 
 import io.aeron.Aeron;
 import io.aeron.Subscription;
@@ -189,13 +189,5 @@ public class LatestRecordingReplayListenerAgent implements Agent {
         CloseHelper.quietClose(aeron);
         CloseHelper.quietClose(mediaDriver);
     }
-
-    public enum State {
-        AERON_READY,
-        ARCHIVE_READY,
-        POLLING_SUBSCRIPTION,
-        SHUTTING_DOWN
-    }
-
 
 }

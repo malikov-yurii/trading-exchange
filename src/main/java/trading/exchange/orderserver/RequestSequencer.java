@@ -1,5 +1,7 @@
 package trading.exchange.orderserver;
 
+import aeron.AeronConsumer;
+import aeron.ArchivePublisher;
 import io.aeron.logbuffer.FragmentHandler;
 import org.agrona.DirectBuffer;
 import org.agrona.ExpandableDirectByteBuffer;
@@ -7,8 +9,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trading.api.OrderRequest;
 import trading.api.OrderRequestSerDe;
-import trading.common.AeronConsumer;
-import trading.common.AeronPublisher;
 import trading.common.LFQueue;
 import trading.common.Utils;
 
@@ -19,7 +19,7 @@ public class RequestSequencer implements Runnable {
 
     private final LFQueue<OrderRequest> requestQueue;
     private final AtomicLong reqSeqNum = new AtomicLong(1);
-    private final AeronPublisher replicationPublisher;
+    private final ArchivePublisher archivePublisher;
     private final AeronConsumer replicationAckConsumer;
 
     private final OrderRequest[] ringBuffer = new OrderRequest[1 << 20];
@@ -29,13 +29,8 @@ public class RequestSequencer implements Runnable {
 
         String aeronIp = Utils.env("AERON_IP", "224.0.1.1");
 
-        this.replicationPublisher = new AeronPublisher(aeronUdpChannel(aeronIp,
-                Utils.env("REPLICATION_PORT", "40551")),
-                Integer.parseInt(Utils.env("REPLICATION_STREAM", "3001")),
-                "REPLICATION",
-                AeronPublisher.PERSISTENT_STREAM,
-                AeronPublisher.REQUIRE_CONNECTED_CONSUMER
-        );
+        int replicationStream = Integer.parseInt(Utils.env("REPLICATION_STREAM", "3001"));
+        this.archivePublisher = new ArchivePublisher(replicationStream, "REPLICATION", false);
 
         FragmentHandler fragmentHandler = (buffer, offset, length, header) -> processReplicationAck(buffer, offset, length);
         replicationAckConsumer = new AeronConsumer(aeronIp,
@@ -54,7 +49,7 @@ public class RequestSequencer implements Runnable {
         ExpandableDirectByteBuffer buffer = new ExpandableDirectByteBuffer(128);
         int offset = 0;
         int length = OrderRequestSerDe.serialize(orderRequest, buffer, offset);
-        replicationPublisher.publish(buffer, offset, length);
+        archivePublisher.publish(buffer, offset, length);
     }
 
     private void enqueueOrderReq(OrderRequest orderRequest) {
@@ -98,7 +93,7 @@ public class RequestSequencer implements Runnable {
     }
 
     public void shutdown() {
-        replicationPublisher.close();
+        archivePublisher.close();
         replicationAckConsumer.stop();
     }
 

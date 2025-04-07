@@ -1,4 +1,4 @@
-package trading.common.aeron;
+package aeron.samples;
 
 import io.aeron.Aeron;
 import io.aeron.Image;
@@ -8,7 +8,6 @@ import io.aeron.archive.client.RecordingDescriptorConsumer;
 import io.aeron.driver.MediaDriver;
 import io.aeron.driver.ThreadingMode;
 import io.aeron.exceptions.TimeoutException;
-import lombok.Data;
 import org.agrona.CloseHelper;
 import org.agrona.concurrent.Agent;
 import org.agrona.concurrent.IdleStrategy;
@@ -20,15 +19,10 @@ import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.SocketException;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Enumeration;
 import java.util.List;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
 
 public class ArchiveConsumerAgent implements Agent {
     public static final String AERON_UDP_ENDPOINT = "aeron:udp?endpoint=";
@@ -37,37 +31,27 @@ public class ArchiveConsumerAgent implements Agent {
     private static final Logger log = LoggerFactory.getLogger(ArchiveConsumerAgent.class);
 
     private final String archiveHost;
+    private final MediaDriver mediaDriver;
     private final String thisHost;
     private final int archiveControlPort;
     private final int archiveEventPort;
-
-    private final MediaDriver mediaDriver;
-    private final Aeron aeron;
-    private AeronArchive archive;
-
     private final ArchiveConsumerFragmentHandler fragmentHandler;
+    private final Aeron aeron;
     private final IdleStrategy idleStrategy;
-    
+    private AeronArchive archive;
     private AeronArchive.AsyncConnect asyncConnect;
     private State currentState;
 
     // For replaying recordings sequentially:
     private List<RecordingInfo> recordings = null;
-
     private int currentRecordingIndex = 0;
     // For old recordings the stop position marks when the replay is finished.
     // For the latest recording replayed with Long.MAX_VALUE, we leave it as Long.MAX_VALUE.
-    private volatile long currentReplayStopPosition = -1;
-    private volatile long lastImagePosition;
+    private long currentReplayStopPosition = -1;
     private Subscription replayDestinationSubs;
-    private final ReplayStrategy replayStrategy;
-
-    private ScheduledExecutorService scheduler;
-    private ScheduledFuture<?> scheduledFuture;
 
     public ArchiveConsumerAgent(final String archiveHost, final String thisHost, final int archiveControlPort,
-                                final int archiveEventPort, final ArchiveConsumerFragmentHandler fragmentHandler,
-                                final ReplayStrategy replayStrategy) {
+                                final int archiveEventPort, final ArchiveConsumerFragmentHandler fragmentHandler) {
         this.archiveHost = archiveHost;
         this.thisHost = localHost(thisHost);
         this.archiveControlPort = archiveControlPort;
@@ -87,7 +71,6 @@ public class ArchiveConsumerAgent implements Agent {
                 .idleStrategy(new SleepingMillisIdleStrategy()));
 
         this.currentState = State.AERON_READY;
-        this.replayStrategy = replayStrategy;
     }
 
     @Override
@@ -103,8 +86,7 @@ public class ArchiveConsumerAgent implements Agent {
                     boolean finished = false;
                     for (int i = 0, size = replayDestinationSubs.imageCount(); i < size; i++) {
                         final Image image = replayDestinationSubs.imageAtIndex(i);
-                        lastImagePosition = image.position();
-                        if (lastImagePosition >= currentReplayStopPosition) {
+                        if (image.position() >= currentReplayStopPosition) {
                             finished = true;
                             break;
                         }
@@ -117,12 +99,11 @@ public class ArchiveConsumerAgent implements Agent {
                         replayDestinationSubs = null;
                         currentRecordingIndex++;
                         if (currentRecordingIndex < recordings.size()) {
-                            boolean isLatest = isCurrentRecordingLatest();
+                            boolean isLatest = (currentRecordingIndex == recordings.size() - 1);
                             startReplayForRecording(recordings.get(currentRecordingIndex), isLatest);
                         } else {
                             // This branch should not be reached as we start the last recording in latest mode.
                             log.warn("No more recordings to replay");
-                            onClose();
                         }
                     }
                 }
@@ -153,65 +134,20 @@ public class ArchiveConsumerAgent implements Agent {
             } else {
                 // Once archive is connected, list all recordings (if not done already) and start replay.
                 if (recordings == null) {
-                    recordings = fetchRecordings();
+                    recordings = getRecordings("aeron:ipc", RECORDED_STREAM_ID);
                     if (recordings.isEmpty()) {
-                        log.info("No recordings found, stopping...");
-                        onClose();
+                        log.info("No recordings found, idling...");
+                        idleStrategy.idle();
                         return;
                     }
                     currentRecordingIndex = 0;
                     // If only one recording exists, treat it as the latest (tailing) replay.
-                    boolean isLatest = isCurrentRecordingLatest();
+                    boolean isLatest = (recordings.size() == 1);
                     startReplayForRecording(recordings.get(currentRecordingIndex), isLatest);
                     currentState = State.POLLING_SUBSCRIPTION;
-
-                    var lastRec = recordings.getLast();
-                    if (replayStrategy == ReplayStrategy.REPLAY_OLD && lastRec.stopPosition < 0) {
-                        log.info("Replay strategy is REPLAY_OLD, but last recording stop position is {}. ", lastRec.stopPosition);
-                        // means the latest recording has not yet finished, and we need to wait for it to finish
-
-                        scheduler = Executors.newSingleThreadScheduledExecutor(
-                                r -> new Thread(r, "ArchiveConsumerAgent-Cron"));
-
-                        scheduledFuture = scheduler.scheduleAtFixedRate(
-                                this::checkLatestRecordingFinished,
-                                1000, // initial delay
-                                1000, // repeat interval
-                                TimeUnit.MILLISECONDS
-                        );
-                    }
-
                 }
             }
         }
-    }
-
-    private List<RecordingInfo> fetchRecordings() {
-        return fetchRecordings("aeron:ipc", RECORDED_STREAM_ID);
-    }
-
-    private void checkLatestRecordingFinished() {
-        List<RecordingInfo> recordingInfos = fetchRecordings();
-        RecordingInfo last = this.recordings.getLast();
-        recordingInfos.stream().filter(r -> r.recordingId == last.recordingId).findFirst().ifPresent(recording -> {
-            if (recording.stopPosition > 0) {
-                log.info("Latest recording recordingId {} finished, stopping scheduler", recording.recordingId);
-                scheduledFuture.cancel(false);
-                currentReplayStopPosition = recording.stopPosition;
-                if (lastImagePosition >= currentReplayStopPosition) {
-                    log.info("Latest recording already fully replayed, stopping consumer. " +
-                                    "lastImagePosition {}. currentReplayStopPosition {}. {}",
-                            lastImagePosition, currentReplayStopPosition, this.recordings.getLast().recordingId);
-                    onClose();
-                }
-            } else {
-                log.info("Latest recording not finished yet");
-            }
-        });
-    }
-
-    private boolean isCurrentRecordingLatest() {
-        return currentRecordingIndex == recordings.size() - 1;
     }
 
     /**
@@ -243,7 +179,7 @@ public class ArchiveConsumerAgent implements Agent {
      * @param remoteRecordedStream  the stream id.
      * @return a list of recordings found.
      */
-    private List<RecordingInfo> fetchRecordings(final String remoteRecordedChannel, final int remoteRecordedStream) {
+    private List<RecordingInfo> getRecordings(final String remoteRecordedChannel, final int remoteRecordedStream) {
         final List<RecordingInfo> recordingList = new ArrayList<>();
         final RecordingDescriptorConsumer consumer = (controlSessionId, correlationId, recordingId,
                                                       startTimestamp, stopTimestamp, startPosition,
@@ -251,8 +187,8 @@ public class ArchiveConsumerAgent implements Agent {
                                                       termBufferLength, mtuLength, sessionId,
                                                       streamId, strippedChannel, originalChannel,
                                                       sourceIdentity) -> {
-            log.info("Found startTimestamp={} recordingId={} startPos={} stopPos={} sessionId={} streamId={}",
-                    Instant.ofEpochMilli(startTimestamp), recordingId, startPosition, stopPosition, sessionId, streamId);
+            log.info("Found recordingId={} startPos={} stopPos={} sessionId={} streamId={}",
+                    recordingId, startPosition, stopPosition, sessionId, streamId);
             recordingList.add(new RecordingInfo(recordingId, startPosition, stopPosition));
         };
 
@@ -261,8 +197,7 @@ public class ArchiveConsumerAgent implements Agent {
         log.info("Total recordings found: {}", foundCount);
 
         // Sort recordings by their start position so that the oldest is replayed first.
-        // Or sort by r.startTimestamp
-        recordingList.sort(Comparator.comparingLong(r -> r.recordingId));
+        recordingList.sort(Comparator.comparingLong(r -> r.startPosition));
         return recordingList;
     }
 
@@ -307,17 +242,6 @@ public class ArchiveConsumerAgent implements Agent {
         CloseHelper.quietClose(archive);
         CloseHelper.quietClose(aeron);
         CloseHelper.quietClose(mediaDriver);
-        if (scheduler != null) {
-            try {
-                scheduler.shutdown();
-                scheduler.awaitTermination(5, TimeUnit.SECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } catch (Exception exception) {
-                log.error("Error shutting down scheduler", exception);
-            }
-        }
-        Thread.currentThread().interrupt();
     }
 
     private enum State {
@@ -325,12 +249,6 @@ public class ArchiveConsumerAgent implements Agent {
         POLLING_SUBSCRIPTION
     }
 
-    public enum ReplayStrategy {
-        REPLAY_OLD,
-        REPLAY_OLD_AND_SUBSCRIBE
-    }
-
-    @Data
     private static class RecordingInfo {
         final long recordingId;
         final long startPosition;

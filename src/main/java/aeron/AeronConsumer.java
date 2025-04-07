@@ -1,5 +1,6 @@
-package trading.common;
+package aeron;
 
+import io.aeron.Aeron;
 import io.aeron.Subscription;
 import io.aeron.logbuffer.FragmentHandler;
 import org.agrona.concurrent.BusySpinIdleStrategy;
@@ -19,6 +20,7 @@ public class AeronConsumer {
     private final int sleepPeriodMs = 10;
     private final String channel;
     private final int streamId;
+    private final Aeron aeron;
 
     private volatile boolean running;
 
@@ -28,14 +30,15 @@ public class AeronConsumer {
 
         channel = "aeron:udp?endpoint=" + ip + ":" + port;
         this.streamId = streamId;
-        this.subscription = AeronClient.INSTANCE.addSubscription(channel, this.streamId);
+        aeron = AeronClient.AERON_INSTANCE_REMOTE;
+        this.subscription = aeron.addSubscription(channel, this.streamId);
     }
 
     public void run() {
         String idle = env("MD_WAIT_STRATEGY", "SLEEPING_WAIT");
         IdleStrategy idleStrategy;
-        String msg = String.format("--------------------> [%s] Starting AeronConsumer: channel: %s, streamId: %s. Idle Strategy %s. aeronDir: %s",
-                name, channel, streamId, idle, AeronClient.getAeronDirectory());
+        String msg = String.format("----> [%s] Starting AeronConsumer: channel: %s, streamId: %s. Idle Strategy %s. aeronDir: %s",
+                name, channel, streamId, idle, aeron.context().aeronDirectoryName());
         if ("SLEEPING_WAIT".equals(idle)) {
             msg += ". sleepPeriodMs=" + sleepPeriodMs;
             idleStrategy = new SleepingMillisIdleStrategy(sleepPeriodMs);

@@ -1,17 +1,31 @@
 version: '3'
 
+x-common-exchange-env: &common-exchange-env
+  MD_PORT: 40456
+  MD_SNAPSHOT_PORT: 40457
+  REPLICATION_PORT: 40552
+  REPLICATION_STREAM: 3002
+  REPLICATION_ACK_PORT: 40551
+  REPLICATION_ACK_STREAM: 3001
+  WS_IP: 0.0.0.0
+  AERON_DIR: /dev/shm/aeron-root/dir
+#  ZOOK_HOST: 10.42.0.10
+  ZOOK_HOST: zookeeper
+  ZOO_PORT_NUMBER: 2181
+  ARCHIVEHOST: archive-host
+  CONTROLPORT: 17000
+  EVENTSPORT: 17001
+
 services:
   archive-host:
+    container_name: archive-host
     shm_size: "1gb"
     build:
       context: .
       dockerfile: aeron-archive-host/Dockerfile
     environment:
-      - ARCHIVEHOST=archive-host
-      - CONTROLPORT=17000
-      - EVENTSPORT=17001
-      - AERON_DIR=/dev/shm/aeron-root/dir
-      - DELETE_AERON_DIR=true
+      DELETE_AERON_DIR: true
+      <<: *common-exchange-env
     hostname: archive-host
     volumes:
       - aeron-dir:/dev/shm/aeron-root
@@ -19,37 +33,72 @@ services:
       default:
         ipv4_address: 10.42.0.2
 
-  archive-publisher:
+  exchange-1:
+    container_name: exchange-1
     shm_size: "1gb"
     build:
       context: .
-      dockerfile: aeron-publisher/Dockerfile
+      dockerfile: exchange/Dockerfile
     environment:
-      - ARCHIVEHOST=archive-host
-      - CONTROLPORT=17000
-      - EVENTSPORT=17001
-      - AERON_DIR=/dev/shm/aeron-root/dir
-    hostname: archive-publisher
+      INSTANCE_ID: "1"
+      WS_PORT: "8091"
+      <<: *common-exchange-env
+    hostname: exchange-1
     volumes:
       - aeron-dir:/dev/shm/aeron-root
+    depends_on:
+      - archive-host
+      - zookeeper
     networks:
       default:
         ipv4_address: 10.42.0.3
 
-  archive-client:
-    shm_size: "1gb"
-    build:
-      context: .
-      dockerfile: aeron-consumer/Dockerfile
+
+  zookeeper:
+    image: bitnami/zookeeper:latest
+    container_name: zookeeper
     environment:
-      - ARCHIVEHOST=archive-host
-      - THISHOST=archive-client
-      - CONTROLPORT=17000
-      - EVENTSPORT=17001
-    hostname: archive-client
+      - ALLOW_ANONYMOUS_LOGIN=yes
+      - ZOO_STANDALONE_ENABLED=true
+      - ZOO_PORT_NUMBER=2181
+      - ZOO_SERVER_ID=1
+      - ZOO_ADVERTISED_HOSTNAME=zookeeper
+    hostname: zookeeper
     networks:
       default:
-        ipv4_address: 10.42.0.4
+        ipv4_address: 10.42.0.10
+
+#  archive-publisher:
+#    shm_size: "1gb"
+#    build:
+#      context: .
+#      dockerfile: aeron-publisher/Dockerfile
+#    environment:
+#      - ARCHIVEHOST=archive-host
+#      - CONTROLPORT=17000
+#      - EVENTSPORT=17001
+#      - AERON_DIR=/dev/shm/aeron-root/dir
+#    hostname: archive-publisher
+#    volumes:
+#      - aeron-dir:/dev/shm/aeron-root
+#    networks:
+#      default:
+#        ipv4_address: 10.42.0.3
+
+#  archive-client:
+#    shm_size: "1gb"
+#    build:
+#      context: .
+#      dockerfile: aeron-consumer/Dockerfile
+#    environment:
+#      - ARCHIVEHOST=archive-host
+#      - THISHOST=archive-client
+#      - CONTROLPORT=17000
+#      - EVENTSPORT=17001
+#    hostname: archive-client
+#    networks:
+#      default:
+#        ipv4_address: 10.42.0.4
 
 volumes:
   aeron-dir:

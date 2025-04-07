@@ -6,7 +6,7 @@ import org.apache.commons.lang3.ObjectUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trading.api.OrderRequest;
-import trading.common.AeronClient;
+import aeron.AeronClient;
 import trading.common.DisruptorLFQueue;
 import trading.common.LFQueue;
 import trading.participant.marketdata.MarketDataConsumer;
@@ -61,7 +61,7 @@ public class ParticipantApplication {
 //        marketDataSnapshotConsumerThread.interrupt();
         orderRequests.shutdown();
         tradeEngineUpdates.shutdown();
-        AeronClient.INSTANCE.close();
+        AeronClient.AERON_INSTANCE_REMOTE.close();
         log.info("ParticipantApplication terminated. tradeEngine lastUpdateTime {}", tradeEngine.getLastUpdateTime());
         System.exit(0);
     }

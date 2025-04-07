@@ -1,4 +1,4 @@
-package aeron;
+package aeron.samples;
 
 import org.agrona.CloseHelper;
 import org.agrona.concurrent.AgentRunner;

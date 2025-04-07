@@ -1,4 +1,4 @@
-package aeron;
+package aeron.samples;
 
 import io.aeron.logbuffer.FragmentHandler;
 import io.aeron.logbuffer.Header;

@@ -1,4 +1,4 @@
-package aeron;
+package aeron.samples;
 
 import io.aeron.archive.client.RecordingEventsListener;
 import org.slf4j.Logger;

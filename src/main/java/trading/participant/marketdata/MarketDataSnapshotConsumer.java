@@ -6,7 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trading.api.MarketUpdate;
 import trading.api.MarketUpdateSerDe;
-import trading.common.AeronConsumer;
+import aeron.AeronConsumer;
 import trading.common.Utils;
 
 public class MarketDataSnapshotConsumer implements Runnable {

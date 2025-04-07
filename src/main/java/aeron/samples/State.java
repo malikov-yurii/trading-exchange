@@ -1,4 +1,4 @@
-package aeron;
+package aeron.samples;
 
 public enum State {
     AERON_READY,

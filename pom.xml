@@ -16,34 +16,22 @@
 
     <dependencies>
 
-
-
         <dependency>
             <groupId>org.apache.curator</groupId>
             <artifactId>curator-framework</artifactId>
-            <version>2.13.0</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.apache.zookeeper</groupId>
-                    <artifactId>zookeeper</artifactId>
-                </exclusion>
-            </exclusions>
+            <version>5.5.0</version>
         </dependency>
+
         <dependency>
             <groupId>org.apache.curator</groupId>
             <artifactId>curator-recipes</artifactId>
-            <version>2.13.0</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.apache.zookeeper</groupId>
-                    <artifactId>zookeeper</artifactId>
-                </exclusion>
-            </exclusions>
+            <version>5.5.0</version>
         </dependency>
+
         <dependency>
             <groupId>org.apache.zookeeper</groupId>
             <artifactId>zookeeper</artifactId>
-            <version>3.4.13</version>
+            <version>3.9.1</version> <!-- or use .8.3 -->
             <exclusions>
                 <exclusion>
                     <groupId>log4j</groupId>
@@ -55,14 +43,6 @@
                 </exclusion>
             </exclusions>
         </dependency>
-
-<!--        &lt;!&ndash; https://mvnrepository.com/artifact/com.aitusoftware/babl &ndash;&gt;-->
-<!--        <dependency>-->
-<!--            <groupId>com.aitusoftware</groupId>-->
-<!--            <artifactId>babl</artifactId>-->
-<!--            <version>0.11.0</version>-->
-<!--        </dependency>-->
-
 
         <dependency>
             <groupId>org.java-websocket</groupId>
@@ -102,6 +82,12 @@
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
+            <version>1.4.11</version>
+        </dependency>
+
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-core</artifactId>
             <version>1.4.11</version>
         </dependency>
 

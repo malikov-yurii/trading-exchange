@@ -1,15 +1,19 @@
 package trading.exchange.orderserver;
 
+import aeron.ArchiveConsumerAgent;
 import io.aeron.logbuffer.FragmentHandler;
+import org.agrona.CloseHelper;
 import org.agrona.DirectBuffer;
 import org.agrona.ExpandableDirectByteBuffer;
 import org.agrona.MutableDirectBuffer;
+import org.agrona.concurrent.AgentRunner;
+import org.agrona.concurrent.SleepingMillisIdleStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trading.api.OrderRequest;
 import trading.api.OrderRequestSerDe;
-import trading.common.AeronConsumer;
-import trading.common.AeronPublisher;
+import aeron.AeronConsumer;
+import aeron.AeronPublisher;
 import trading.common.LFQueue;
 import trading.common.Utils;
 
@@ -18,9 +22,9 @@ public class ReplicationConsumer implements Runnable {
 
     private final LFQueue<OrderRequest> requestQueue;
 
-    private final AeronConsumer replicationConsumer;
     private final AeronPublisher replicationAckPublisher;
     private final MutableDirectBuffer seqNumBuffer;
+    private AgentRunner runner;
 
     public ReplicationConsumer(LFQueue<OrderRequest> clientRequests) {
         this.requestQueue = clientRequests;
@@ -31,12 +35,6 @@ public class ReplicationConsumer implements Runnable {
                 aeronUdpChannel(aeronIp, Utils.env("REPLICATION_ACK_PORT", "40552")),
                 Integer.parseInt(Utils.env("REPLICATION_ACK_STREAM", "3002")),
                 "REPLICATION_ACK");
-
-        FragmentHandler fragmentHandler = (buffer, offset, length, header) -> processReplicationEvent(buffer, offset, length);
-        replicationConsumer = new AeronConsumer(aeronIp,
-                Utils.env("REPLICATION_PORT", "40551"),
-                Integer.parseInt(Utils.env("REPLICATION_STREAM", "3001")),
-                fragmentHandler, "REPLICATION");
 
         seqNumBuffer = new ExpandableDirectByteBuffer(8);
     }
@@ -56,14 +54,31 @@ public class ReplicationConsumer implements Runnable {
     }
 
     public void shutdown() {
-        replicationConsumer.stop();
+        CloseHelper.quietClose(runner);
         replicationAckPublisher.close();
     }
 
     @Override
     public void run() {
         log.info("ReplicationConsumer starting");
-        replicationConsumer.run();
+
+        FragmentHandler fragmentHandler = (buffer, offset, length, header) -> processReplicationEvent(buffer, offset, length);
+
+        //        replicationConsumer = new AeronConsumer(aeronIp,
+//                Utils.env("REPLICATION_PORT", "40551"),
+//                ),
+//                fragmentHandler, "REPLICATION");
+
+        int streamId = Integer.parseInt(Utils.env("REPLICATION_STREAM", "3001"));
+        final ArchiveConsumerAgent hostAgent =
+                new ArchiveConsumerAgent(streamId, fragmentHandler,
+                        ArchiveConsumerAgent.ReplayStrategy.REPLAY_OLD, "REPLICATION");
+
+        runner = new AgentRunner(new SleepingMillisIdleStrategy(), ArchiveConsumerAgent::errorHandler, null, hostAgent);
+        AgentRunner.startOnThread(runner);
+
+
+//        replicationConsumer.run();
         log.info("ReplicationConsumer shutting down");
     }
 

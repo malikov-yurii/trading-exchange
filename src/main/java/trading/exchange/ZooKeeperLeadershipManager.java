@@ -7,6 +7,7 @@ import org.apache.curator.framework.recipes.leader.LeaderLatchListener;
 import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import trading.common.Utils;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -27,11 +28,14 @@ public class ZooKeeperLeadershipManager implements LeadershipManager {
     private final List<Runnable> leadershipLostTasks = new ArrayList<>();
 
     public ZooKeeperLeadershipManager() throws UnknownHostException {
-        String zooKeeperCluster = "127.0.0.1:2181";
+        String host = Utils.env("ZOOK_HOST", "zookeeper");
+        String port = Utils.env("ZOO_PORT_NUMBER", "2181");
+        String zooKeeperCluster = host + ":" + port;
         int zooKeeperSessionTimeoutMs = 3_000;
         int zooKeeperConnectionTimeoutMs = 3_000;
         int zooKeeperExponentialBackoffRetryBaseSleepMs = 1_000;
-        log.info("init. curatorFramework");
+        log.info("init. curatorFramework. zooKeeperCluster [{}], sessionTimeoutMs [{}], connectionTimeoutMs [{}], exponentialBackoffRetryBaseSleepMs [{}]",
+                zooKeeperCluster, zooKeeperSessionTimeoutMs, zooKeeperConnectionTimeoutMs, zooKeeperExponentialBackoffRetryBaseSleepMs);
         CuratorFramework client = CuratorFrameworkFactory.builder()
                 .connectString(zooKeeperCluster)
                 .sessionTimeoutMs(zooKeeperSessionTimeoutMs)

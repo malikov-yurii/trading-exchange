@@ -6,7 +6,7 @@ import org.slf4j.LoggerFactory;
 import trading.api.MarketUpdate;
 import trading.api.MarketUpdateSerDe;
 import trading.api.MarketUpdateType;
-import trading.common.AeronPublisher;
+import aeron.AeronPublisher;
 import trading.common.LFQueue;
 import trading.common.Utils;
 import trading.exchange.LeadershipManager;
