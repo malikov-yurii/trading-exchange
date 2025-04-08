@@ -2,6 +2,7 @@ package trading.exchange.orderserver;
 
 import aeron.ArchiveConsumerAgent;
 import io.aeron.logbuffer.FragmentHandler;
+import lombok.Getter;
 import org.agrona.CloseHelper;
 import org.agrona.DirectBuffer;
 import org.agrona.ExpandableDirectByteBuffer;
@@ -25,6 +26,9 @@ public class ReplicationConsumer implements Runnable {
     private final MutableDirectBuffer seqNumBuffer;
     private AgentRunner runner;
 
+    @Getter
+    private volatile long lastSeqNum = 0;
+
     public ReplicationConsumer(LFQueue<OrderRequest> clientRequests) {
         this.clientRequests = clientRequests;
 
@@ -41,6 +45,8 @@ public class ReplicationConsumer implements Runnable {
     private void processReplicationEvent(DirectBuffer buffer, int offset, int length) {
         OrderRequest orderRequest = OrderRequestSerDe.deserializeClientRequest(buffer, offset, length);
         log.info("Received {} offset {} length {}", orderRequest, offset, length);
+
+        lastSeqNum = orderRequest.getSeqNum();
 
         clientRequests.offer(orderRequest);
 

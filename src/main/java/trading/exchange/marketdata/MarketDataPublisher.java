@@ -43,7 +43,7 @@ public class MarketDataPublisher {
         }
 
         if (appState.isNotRecoveredLeader()) {
-            log.info("Not Publishing {}", marketUpdate);
+            log.debug("Not Publishing {}", marketUpdate);
             return;
         }
 

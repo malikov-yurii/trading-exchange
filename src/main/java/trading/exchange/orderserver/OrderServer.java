@@ -78,6 +78,7 @@ public class OrderServer {
     private Channel serverChannel;
 
     private ShutdownSignalBarrier shutdownBarrier;
+    private long seqNum; /* TODO Refactor? Currently used to pass seqNum between Sequencer and Replication consumers  */
 
     /**
      * Constructor.
@@ -112,7 +113,9 @@ public class OrderServer {
             if (!wasRunning) {
                 // Starting as leader right away, so we need to replay old client request to recover state
                 appState.setRecovering();
-                new ReplayReplicationLogConsumer(clientRequests).run();
+                ReplayReplicationLogConsumer replayConsumer = new ReplayReplicationLogConsumer(clientRequests);
+                replayConsumer.run();
+                this.seqNum = replayConsumer.getLastSeqNum();
                 appState.setRecovered();
             }
             startRequestSequencer();
@@ -222,13 +225,14 @@ public class OrderServer {
             return false;
         }
         replicationConsumer.shutdown();
+        this.seqNum = replicationConsumer.getLastSeqNum();
         replicationConsumer = null;
         log.info("stopReplicationConsumer. Done");
         return true;
     }
 
     private synchronized void startRequestSequencer() {
-        requestSequencer = new RequestSequencer(clientRequests);
+        requestSequencer = new RequestSequencer(clientRequests, seqNum);
         requestSequencerThread = new Thread(requestSequencer, "RequestSequencerThread");
         requestSequencerThread.start();
     }
@@ -268,7 +272,7 @@ public class OrderServer {
     private void processResponse(OrderMessage orderMessage) {
         try {
             if (appState.isNotRecoveredLeader()) {
-                log.info("Not Publishing {}", orderMessage);
+                log.debug("Not Publishing {}", orderMessage);
                 return;
             }
             if (orderMessage == null) {

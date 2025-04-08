@@ -2,6 +2,7 @@ package trading.exchange;
 
 import aeron.ArchiveConsumerAgent;
 import io.aeron.logbuffer.FragmentHandler;
+import lombok.Getter;
 import org.agrona.DirectBuffer;
 import org.agrona.concurrent.AgentRunner;
 import org.agrona.concurrent.SleepingMillisIdleStrategy;
@@ -16,6 +17,9 @@ public class ReplayReplicationLogConsumer {
     private static final Logger log = LoggerFactory.getLogger(ReplayReplicationLogConsumer.class);
 
     private final LFQueue<OrderRequest> clientRequests;
+
+    @Getter
+    private volatile long lastSeqNum = 0;
 
     public ReplayReplicationLogConsumer(LFQueue<OrderRequest> clientRequests) {
         this.clientRequests = clientRequests;
@@ -44,6 +48,8 @@ public class ReplayReplicationLogConsumer {
     private void processReplicationEvent(DirectBuffer buffer, int offset, int length) {
         OrderRequest orderRequest = OrderRequestSerDe.deserializeClientRequest(buffer, offset, length);
         log.info("Received {} offset {} lenght {}", orderRequest, offset, length);
+
+        lastSeqNum = orderRequest.getSeqNum();
 
         clientRequests.offer(orderRequest);
     }

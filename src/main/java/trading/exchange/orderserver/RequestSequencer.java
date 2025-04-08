@@ -18,13 +18,14 @@ public class RequestSequencer implements Runnable {
     private static final Logger log = LoggerFactory.getLogger(RequestSequencer.class);
 
     private final LFQueue<OrderRequest> requestQueue;
-    private final AtomicLong reqSeqNum = new AtomicLong(1);
+    private final AtomicLong nextSeqNum;
     private final ArchivePublisher archivePublisher;
     private final AeronConsumer replicationAckConsumer;
 
     private final OrderRequest[] ringBuffer = new OrderRequest[1 << 20];
 
-    public RequestSequencer(LFQueue<OrderRequest> clientRequests) {
+    public RequestSequencer(LFQueue<OrderRequest> clientRequests, long seqNum) {
+        nextSeqNum = new AtomicLong(seqNum + 1);
         this.requestQueue = clientRequests;
 
         String aeronIp = Utils.env("AERON_IP", "224.0.1.1");
@@ -40,7 +41,7 @@ public class RequestSequencer implements Runnable {
     }
 
     public void process(OrderRequest orderRequest) {
-        long seq = reqSeqNum.getAndIncrement();
+        long seq = nextSeqNum.getAndIncrement();
         orderRequest.setSeqNum(seq);
         log.info("Received {}", orderRequest);
 
@@ -74,6 +75,7 @@ public class RequestSequencer implements Runnable {
         OrderRequest orderRequest = dequeueOrderReq(ackedReqSeqNum);
 
         if (orderRequest == null) {
+            log.info("Received Dup Ack for msgSeqNum={}", ackedReqSeqNum);
             // Dup Ack
             return;
         }
@@ -86,10 +88,6 @@ public class RequestSequencer implements Runnable {
         OrderRequest orderRequest = ringBuffer[ind];
         ringBuffer[ind] = null;
         return orderRequest;
-    }
-
-    private static String aeronUdpChannel(String aeronIp, String replicationPort) {
-        return "aeron:udp?endpoint=" + aeronIp + ":" + replicationPort;
     }
 
     public void shutdown() {
