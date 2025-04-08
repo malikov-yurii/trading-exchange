@@ -101,10 +101,14 @@ public class OrderGatewayClient {
             BinaryWebSocketFrame frame = new BinaryWebSocketFrame(nettyBuf);
             ChannelFuture channelFuture = channel.writeAndFlush(frame);
             log.info("Sent orderRequest seq={} ticker={} side={} to {}", seq, orderRequest.getTickerId(),
-                    orderRequest.getSide(), currentConnectionServerId);
+                    orderRequest.getSide(), currentServerUri());
         } catch (Exception e) {
             log.error("Failed to send orderRequest", e);
         }
+    }
+
+    private String currentServerUri() {
+        return orderServerUris.get(currentConnectionServerId);
     }
 
     private void waitActiveChannel() {
@@ -130,6 +134,8 @@ public class OrderGatewayClient {
 
     private synchronized void connectPreferPrimary() {
         if (currentConnectionServerId != null && channel != null && channel.isActive()) {
+            log.info("connectPreferPrimary. currentConnectionServer {} channel.isActive {}",
+                    currentServerUri(), channel.isActive());
             return;
         }
 
@@ -158,6 +164,8 @@ public class OrderGatewayClient {
                 log.warn("Already connecting. Skipping...");
                 return false;
             }
+            String serverUri = orderServerUris.get(serverId);
+            log.info("Trying to connect to {}...", serverUri);
             connecting = true;
             Channel oldChannel = channel;
             channel = null;
@@ -165,7 +173,6 @@ public class OrderGatewayClient {
                 oldChannel.close().sync();
             }
 
-            String serverUri = orderServerUris.get(serverId);
             URI uri = new URI(serverUri);
             boolean ssl = "wss".equalsIgnoreCase(uri.getScheme());
             SslContext sslCtx = ssl ? buildSslContext() : null;
@@ -175,7 +182,7 @@ public class OrderGatewayClient {
                     .group(group)
                     .channel(NioSocketChannel.class)
                     .option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT)
-                    .handler(new ChannelInitializer<Channel>() {
+                    .handler(new ChannelInitializer<>() {
                         @Override
                         protected void initChannel(Channel ch) {
                             ChannelPipeline pipeline = ch.pipeline();
@@ -192,7 +199,7 @@ public class OrderGatewayClient {
 
             String host = uri.getHost() == null ? "127.0.0.1" : uri.getHost();
             int port = getPort(uri);
-//            log.info("Attempting connect to {} at {}:{}", serverUri, host, port);
+            log.info("Attempting connect to {} at {}:{}", serverUri, host, port);
 
             ChannelFuture cf = b.connect(host, port);
             cf.addListener(f -> { /* Have to use listeners to not block Netty main loop */
@@ -210,7 +217,7 @@ public class OrderGatewayClient {
                     });
                     log.info("Connected to {} at {}:{}", serverUri, host, port);
                 } else {
-//                    log.warn("Failed to connect to {} -> {}", serverUri, f.cause().getMessage());
+                    log.warn("Failed to connect to {} -> {}", serverUri, f.cause().getMessage());
                     connecting = false;
                     tryConnectToAnotherServer(serverId);
                 }
@@ -224,8 +231,9 @@ public class OrderGatewayClient {
     }
 
     private void tryConnectToAnotherServer(int serverId) {
-        int anotherServerid = serverId + 1 % orderServerUris.size();
-        tryConnect(anotherServerid);
+        int anotherServerId = (serverId + 1) % orderServerUris.size();
+        log.info("Trying to connect to another server {}...", orderServerUris.get(anotherServerId));
+        tryConnect(anotherServerId);
     }
 
     private int getPort(URI uri) {
