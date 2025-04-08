@@ -3,6 +3,7 @@ package trading.participant;
 import com.lmax.disruptor.dsl.ProducerType;
 import org.agrona.concurrent.ShutdownSignalBarrier;
 import org.apache.commons.lang3.ObjectUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trading.api.OrderRequest;
@@ -15,7 +16,10 @@ import trading.participant.strategy.AlgoType;
 import trading.participant.strategy.TradeEngine;
 import trading.participant.strategy.TradeEngineUpdate;
 
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class ParticipantApplication {
     private static final Logger log = LoggerFactory.getLogger(ParticipantApplication.class);
@@ -37,10 +41,15 @@ public class ParticipantApplication {
 
         LFQueue<OrderRequest> orderRequests = new DisruptorLFQueue<>(1024, "orderRequests", ProducerType.MULTI);
 
-//        String orderServerUri = env("ORDER_SERVER_URI", "ws://localhost:8080/ws");
-        String primaryOrderServerUri = env("ORDER_SERVER_1_URI", null);
-        String backupOrderServerUri = env("ORDER_SERVER_2_URI", null);
-        OrderGatewayClient orderGatewayClient = new OrderGatewayClient(primaryOrderServerUri, backupOrderServerUri, orderRequests, tradeEngineUpdates);
+        String orderServerHosts = env("ORDER_SERVER_HOSTS", null);
+        int orderServerPort = Integer.parseInt(env("WS_PORT", null));
+
+        if (StringUtils.isAnyBlank(orderServerHosts)) {
+            log.error("ORDER_SERVER_HOSTS {} and WS_PORT {} env vars are required", orderServerHosts, orderServerPort);
+            throw new IllegalArgumentException("ORDER_SERVER_HOSTS and WS_PORT env vars are required");
+        }
+
+        OrderGatewayClient orderGatewayClient = new OrderGatewayClient(orderServerHosts, orderServerPort, orderRequests, tradeEngineUpdates);
         orderGatewayClient.start();
 
 

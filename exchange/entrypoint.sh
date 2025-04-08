@@ -1,7 +1,5 @@
 #!/bin/sh
 
-echo "10.42.0.10 zookeeper" >> /etc/hosts
-
 java  \
   --add-opens=java.base/sun.nio.ch=ALL-UNNAMED  \
   --add-opens=java.base/java.util=ALL-UNNAMED  \

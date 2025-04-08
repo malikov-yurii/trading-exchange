@@ -28,6 +28,7 @@ import io.netty.handler.codec.http.websocketx.WebSocketVersion;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
 import org.agrona.ExpandableDirectByteBuffer;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trading.api.OrderMessage;
@@ -40,17 +41,18 @@ import trading.participant.strategy.TradeEngineUpdate;
 import javax.net.ssl.SSLException;
 import java.net.URI;
 import java.nio.ByteOrder;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 
 public class OrderGatewayClient {
 
     private static final Logger log = LoggerFactory.getLogger(OrderGatewayClient.class);
 
-    private final String primaryServerUri;
-    private final String backupServerUri;
+    private final List<String> orderServerUris;
     private final LFQueue<TradeEngineUpdate> tradeEngineUpdates;
 
-    private volatile String currentConnectionServer = null;
+    private volatile Integer currentConnectionServerId = null;
 
     private EventLoopGroup group;
     private Channel channel;
@@ -59,14 +61,22 @@ public class OrderGatewayClient {
     private volatile boolean connecting = false;
 
     public OrderGatewayClient(
-            String primaryServerUri,
-            String backupServerUri,
+            String orderServerHosts, Integer orderServerPort,
             LFQueue<OrderRequest> orderRequests,
             LFQueue<TradeEngineUpdate> tradeEngineUpdates) {
 
-        log.info("Creating OrderGatewayClient. primary={}, backup={}", primaryServerUri, backupServerUri);
-        this.primaryServerUri = primaryServerUri;
-        this.backupServerUri = backupServerUri;
+        List<String> orderServerUris = Stream.of(orderServerHosts.split(","))
+                .peek(host -> {
+                    if (StringUtils.isBlank(host)) {
+                        log.error("ORDER_SERVER_HOSTS env var is not valid");
+                        throw new IllegalArgumentException("ORDER_SERVER_HOSTS env var is not valid");
+                    }
+                })
+                .map(host -> "ws://" + host + ":" + orderServerPort + "/ws")
+                .toList();
+
+        log.info("Creating OrderGatewayClient. orderServerUris={}", orderServerUris);
+        this.orderServerUris = orderServerUris;
         this.tradeEngineUpdates = tradeEngineUpdates;
         orderRequests.subscribe(this::doSendOrderRequest);
     }
@@ -91,7 +101,7 @@ public class OrderGatewayClient {
             BinaryWebSocketFrame frame = new BinaryWebSocketFrame(nettyBuf);
             ChannelFuture channelFuture = channel.writeAndFlush(frame);
             log.info("Sent orderRequest seq={} ticker={} side={} to {}", seq, orderRequest.getTickerId(),
-                    orderRequest.getSide(), currentConnectionServer);
+                    orderRequest.getSide(), currentConnectionServerId);
         } catch (Exception e) {
             log.error("Failed to send orderRequest", e);
         }
@@ -119,21 +129,18 @@ public class OrderGatewayClient {
     }
 
     private synchronized void connectPreferPrimary() {
-        if (currentConnectionServer != null && channel != null && channel.isActive()) {
+        if (currentConnectionServerId != null && channel != null && channel.isActive()) {
             return;
         }
 
-        if (tryConnect(primaryServerUri)) {
-            currentConnectionServer = primaryServerUri;
-            return;
+        for (int serverId = 0; serverId < orderServerUris.size(); serverId++) {
+            if (tryConnect(serverId)) {
+                currentConnectionServerId = serverId;
+                return;
+            }
         }
 
-        if (tryConnect(backupServerUri)) {
-            currentConnectionServer = backupServerUri;
-            return;
-        }
-
-        currentConnectionServer = null;
+        currentConnectionServerId = null;
 
         log.warn("Both primary and backup failed. Will retry in 2 seconds...");
         try {
@@ -145,7 +152,7 @@ public class OrderGatewayClient {
     }
 
 //    TODO: try re-connect not more than once 100ms
-    private synchronized boolean tryConnect(String serverUri) {
+    private synchronized boolean tryConnect(Integer serverId) {
         try {
             if (connecting) {
                 log.warn("Already connecting. Skipping...");
@@ -158,6 +165,7 @@ public class OrderGatewayClient {
                 oldChannel.close().sync();
             }
 
+            String serverUri = orderServerUris.get(serverId);
             URI uri = new URI(serverUri);
             boolean ssl = "wss".equalsIgnoreCase(uri.getScheme());
             SslContext sslCtx = ssl ? buildSslContext() : null;
@@ -197,14 +205,14 @@ public class OrderGatewayClient {
                         } else {
                             log.warn("Handshake failed for {} -> {}", serverUri, f2.cause().getMessage());
                             connecting = false;
-                            tryConnectToAnotherServer(serverUri);
+                            tryConnectToAnotherServer(serverId);
                         }
                     });
                     log.info("Connected to {} at {}:{}", serverUri, host, port);
                 } else {
 //                    log.warn("Failed to connect to {} -> {}", serverUri, f.cause().getMessage());
                     connecting = false;
-                    tryConnectToAnotherServer(serverUri);
+                    tryConnectToAnotherServer(serverId);
                 }
             });
             return true;
@@ -215,9 +223,9 @@ public class OrderGatewayClient {
         }
     }
 
-    private void tryConnectToAnotherServer(String serverUri) {
-        String anotherServerUri = primaryServerUri.equals(serverUri) ? backupServerUri : primaryServerUri;
-        tryConnect(anotherServerUri);
+    private void tryConnectToAnotherServer(int serverId) {
+        int anotherServerid = serverId + 1 % orderServerUris.size();
+        tryConnect(anotherServerid);
     }
 
     private int getPort(URI uri) {

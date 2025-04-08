@@ -1,6 +1,6 @@
 version: '3'
 
-x-common-exchange-env: &common-exchange-env
+x-common-env: &common-env
   MD_PORT: 40456
   MD_SNAPSHOT_PORT: 40457
   REPLICATION_PORT: 40552
@@ -9,12 +9,12 @@ x-common-exchange-env: &common-exchange-env
   REPLICATION_ACK_STREAM: 3001
   WS_IP: 0.0.0.0
   AERON_DIR: /dev/shm/aeron-root/dir
-#  ZOOK_HOST: 10.42.0.10
   ZOOK_HOST: zookeeper
   ZOO_PORT_NUMBER: 2181
   ARCHIVEHOST: archive-host
   CONTROLPORT: 17000
   EVENTSPORT: 17001
+  WS_PORT: 8090
 
 services:
 
@@ -27,10 +27,9 @@ services:
     environment:
       CLIENT_ID: 1
       ALGO_TYPE: RANDOM
-      ORDER_SERVER_1_URI: ws://exchange-1:8091/ws
-      ORDER_SERVER_2_URI: ws://exchange-2:8091/ws
+      ORDER_SERVER_HOSTS: exchange-1,exchange-2,exchange-3
       THISHOST: "trader-r"
-      <<: *common-exchange-env
+      <<: *common-env
     hostname: trader-r
     volumes:
       - aeron-dir:/dev/shm/aeron-root
@@ -39,7 +38,7 @@ services:
       - zookeeper
     networks:
       default:
-        ipv4_address: 10.42.0.5
+        ipv4_address: 10.43.0.31
 
   exchange-1:
     container_name: exchange-1
@@ -50,8 +49,7 @@ services:
     environment:
       INSTANCE_ID: "1"
       THISHOST: "exchange-1"
-      WS_PORT: "8091"
-      <<: *common-exchange-env
+      <<: *common-env
     hostname: exchange-1
     volumes:
       - aeron-dir:/dev/shm/aeron-root
@@ -60,7 +58,7 @@ services:
       - zookeeper
     networks:
       default:
-        ipv4_address: 10.42.0.3
+        ipv4_address: 10.43.0.21
 
   exchange-2:
     container_name: exchange-2
@@ -71,8 +69,7 @@ services:
     environment:
       INSTANCE_ID: "2"
       THISHOST: "exchange-2"
-      WS_PORT: "8092"
-      <<: *common-exchange-env
+      <<: *common-env
     hostname: exchange-2
     volumes:
       - aeron-dir:/dev/shm/aeron-root
@@ -81,7 +78,27 @@ services:
       - zookeeper
     networks:
       default:
-        ipv4_address: 10.42.0.4
+        ipv4_address: 10.43.0.22
+
+  exchange-3:
+    container_name: exchange-3
+    shm_size: "1gb"
+    build:
+      context: .
+      dockerfile: exchange/Dockerfile
+    environment:
+      INSTANCE_ID: "2"
+      THISHOST: "exchange-3"
+      <<: *common-env
+    hostname: exchange-3
+    volumes:
+      - aeron-dir:/dev/shm/aeron-root
+    depends_on:
+      - archive-host
+      - zookeeper
+    networks:
+      default:
+        ipv4_address: 10.43.0.23
 
   archive-host:
     container_name: archive-host
@@ -91,13 +108,13 @@ services:
       dockerfile: aeron-archive-host/Dockerfile
     environment:
       DELETE_AERON_DIR: true
-      <<: *common-exchange-env
+      <<: *common-env
     hostname: archive-host
     volumes:
       - aeron-dir:/dev/shm/aeron-root
     networks:
       default:
-        ipv4_address: 10.42.0.2
+        ipv4_address: 10.43.0.2
 
   zookeeper:
     image: bitnami/zookeeper:latest
@@ -111,7 +128,7 @@ services:
     hostname: zookeeper
     networks:
       default:
-        ipv4_address: 10.42.0.10
+        ipv4_address: 10.43.0.3
 
 volumes:
   aeron-dir:
@@ -121,7 +138,7 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: 10.42.0.0/24
+        - subnet: 10.43.0.0/24
 
 
 

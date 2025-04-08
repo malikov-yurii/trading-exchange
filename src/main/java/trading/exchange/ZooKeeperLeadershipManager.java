@@ -53,16 +53,16 @@ public class ZooKeeperLeadershipManager implements LeadershipManager {
         leaderLatch.addListener(new LeaderLatchListener() {
             @Override
             public void isLeader() {
-                log.info("leaderLatch. isLeader");
+                log.info("--------> isLeader. LEADER");
                 executeLeadershipAcquiredTasks();
-                log.info("leaderLatch. isLeader callback finished");
+                log.info("isLeader. callback finished");
             }
 
             @Override
             public void notLeader() {
-                log.info("leaderLatch. notLeader");
+                log.info("--------> notLeader. FOLLOWER");
                 executeLeadershipLostTasks();
-                log.info("leaderLatch. notLeader callback finished");
+                log.info("notLeader. callback finished");
             }
         }, singleThreadExecutor);
         log.info("init");
