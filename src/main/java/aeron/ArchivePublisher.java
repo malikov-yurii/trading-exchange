@@ -176,7 +176,7 @@ public class ArchivePublisher {
 //        if (log.isDebugEnabled()) {
 //            log.debug("[{}] Published msg len={}. Result: {}", name, length, result);
 //        }
-        log.info(name +  " [{}] Published msg len={}. Result: {}", name, length, result);
+        log.info(" [{}] Published msg len={}. Result: {}", name, length, result);
     }
 
     private void setupMonitoring() {

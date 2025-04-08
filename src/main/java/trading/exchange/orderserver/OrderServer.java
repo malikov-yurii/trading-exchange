@@ -37,7 +37,9 @@ import trading.api.OrderRequest;
 import trading.api.OrderRequestSerDe;
 import trading.common.LFQueue;
 import trading.common.Utils;
+import trading.exchange.AppState;
 import trading.exchange.LeadershipManager;
+import trading.exchange.ReplayReplicationLogConsumer;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -54,6 +56,7 @@ public class OrderServer {
 
     private final LFQueue<OrderRequest> clientRequests;
     private final LeadershipManager leadershipManager;
+    private final AppState appState;
 
     private ReplicationConsumer replicationConsumer;
     private RequestSequencer requestSequencer;
@@ -78,13 +81,16 @@ public class OrderServer {
 
     /**
      * Constructor.
-     * @param clientRequests  The queue where client OrderRequests are placed
+     *
+     * @param clientRequests    The queue where client OrderRequests are placed
      * @param clientResponses   The queue from which OrderMessages will be read and sent to clients
      * @param leadershipManager Manages whether this server is leader or follower
+     * @param appState
      */
     public OrderServer(LFQueue<OrderRequest> clientRequests,
                        LFQueue<OrderMessage> clientResponses,
-                       LeadershipManager leadershipManager) {
+                       LeadershipManager leadershipManager,
+                       AppState appState) {
         this.clientRequests = clientRequests;
         this.leadershipManager = leadershipManager;
 
@@ -93,6 +99,7 @@ public class OrderServer {
 
         // Subscribe to responses; process them in processResponse method
         clientResponses.subscribe(this::processResponse);
+        this.appState = appState;
     }
 
     /**
@@ -101,7 +108,13 @@ public class OrderServer {
      */
     public synchronized void start() {
         leadershipManager.onLeadershipAcquired(() -> {
-            stopReplicationConsumer();
+            boolean wasRunning = stopReplicationConsumer();
+            if (!wasRunning) {
+                // Starting as leader right away, so we need to replay old client request to recover state
+                appState.setRecovering();
+                new ReplayReplicationLogConsumer(clientRequests).run();
+                appState.setRecovered();
+            }
             startRequestSequencer();
             startNettyServer();
         });
@@ -203,13 +216,15 @@ public class OrderServer {
         replicationConsumer.run();
     }
 
-    private synchronized void stopReplicationConsumer() {
+    private synchronized boolean stopReplicationConsumer() {
         log.info("stopReplicationConsumer. Started");
-        if (replicationConsumer != null) {
-            replicationConsumer.shutdown();
+        if (replicationConsumer == null) {
+            return false;
         }
+        replicationConsumer.shutdown();
         replicationConsumer = null;
         log.info("stopReplicationConsumer. Done");
+        return true;
     }
 
     private synchronized void startRequestSequencer() {
@@ -252,7 +267,7 @@ public class OrderServer {
      */
     private void processResponse(OrderMessage orderMessage) {
         try {
-            if (leadershipManager.isFollower()) {
+            if (appState.isNotRecoveredLeader()) {
                 log.info("Not Publishing {}", orderMessage);
                 return;
             }

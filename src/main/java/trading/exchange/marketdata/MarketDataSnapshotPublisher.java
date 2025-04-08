@@ -9,6 +9,7 @@ import trading.api.MarketUpdateType;
 import aeron.AeronPublisher;
 import trading.common.LFQueue;
 import trading.common.Utils;
+import trading.exchange.AppState;
 import trading.exchange.LeadershipManager;
 
 import java.util.ArrayList;
@@ -29,7 +30,7 @@ public class MarketDataSnapshotPublisher {
 
     private final LFQueue<MarketUpdate> marketUpdateLFQueue;
 
-    private final LeadershipManager leadershipManager;
+    private final AppState appState;
 
     private final AeronPublisher aeronPublisher;
 
@@ -40,11 +41,11 @@ public class MarketDataSnapshotPublisher {
     private volatile boolean running = true;
 
     public MarketDataSnapshotPublisher(LFQueue<MarketUpdate> marketUpdateLFQueue,
-                                       LeadershipManager leadershipManager,
+                                       AppState appState,
                                        int maxTickers) {
 
         this.marketUpdateLFQueue = marketUpdateLFQueue;
-        this.leadershipManager = leadershipManager;
+        this.appState = appState;
         this.marketUpdateLFQueue.subscribe(this::onIncrementalUpdate);
 
         this.tickerOrders = new ArrayList<>(maxTickers);
@@ -184,8 +185,8 @@ public class MarketDataSnapshotPublisher {
             return;
         }
 
-        if (leadershipManager.isFollower()) {
-            log.info("Not Published {}", marketUpdate);
+        if (appState.isNotRecoveredLeader()) {
+            log.info("Not Publishing {}", marketUpdate);
             return;
         }
 

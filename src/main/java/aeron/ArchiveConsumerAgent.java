@@ -9,6 +9,7 @@ import io.aeron.driver.MediaDriver;
 import io.aeron.driver.ThreadingMode;
 import io.aeron.exceptions.TimeoutException;
 import io.aeron.logbuffer.FragmentHandler;
+import lombok.AllArgsConstructor;
 import lombok.Data;
 import org.agrona.CloseHelper;
 import org.agrona.concurrent.Agent;
@@ -57,7 +58,7 @@ public class ArchiveConsumerAgent implements Agent {
     // For replaying recordings sequentially:
     private List<RecordingInfo> recordings = null;
 
-    private int currentRecordingIndex = 0;
+    private int currentRecordingIndex = -1;
     // For old recordings the stop position marks when the replay is finished.
     // For the latest recording replayed with Long.MAX_VALUE, we leave it as Long.MAX_VALUE.
     private volatile long currentReplayStopPosition = -1;
@@ -90,8 +91,10 @@ public class ArchiveConsumerAgent implements Agent {
         this.archiveEventPort = Integer.parseInt(eventPort);
         this.fragmentHandler = fragmentHandler;
         this.idleStrategy = new SleepingMillisIdleStrategy(250);
+        this.replayStrategy = replayStrategy;
 
-        log.info("{} | Launching media driver", this.name);
+        log.info("{} | Starting {}. streamId {}, THISHOST {}, ARCHIVEHOST {}, CONTROLPORT {}, EVENTSPORT {}",
+                this.name, this.replayStrategy, this.streamId, archiveHost, controlPort, thisHost, eventPort);
         this.mediaDriver = MediaDriver.launch(new MediaDriver.Context()
                 .aeronDirectoryName(AeronUtils.getAeronDirLocal())
                 .dirDeleteOnStart(true)
@@ -104,7 +107,6 @@ public class ArchiveConsumerAgent implements Agent {
                 .idleStrategy(new SleepingMillisIdleStrategy()));
 
         this.currentState = State.AERON_READY;
-        this.replayStrategy = replayStrategy;
     }
 
     public static void errorHandler(final Throwable throwable) {
@@ -124,7 +126,12 @@ public class ArchiveConsumerAgent implements Agent {
                     boolean finished = false;
                     for (int i = 0, size = replayDestinationSubscription.imageCount(); i < size; i++) {
                         final Image image = replayDestinationSubscription.imageAtIndex(i);
-                        lastImagePosition = image.position();
+                        long newImagePosition = image.position();
+                        if (newImagePosition != lastImagePosition) {
+                            log.info("{} | newImagePosition {}. lastImagePosition {}. diff {}. currentReplayStopPosition {}. {}", this.name, newImagePosition,
+                                    lastImagePosition, newImagePosition - lastImagePosition, currentReplayStopPosition, image);
+                        }
+                        lastImagePosition = newImagePosition;
                         if (lastImagePosition >= currentReplayStopPosition) {
                             finished = true;
                             break;
@@ -136,21 +143,44 @@ public class ArchiveConsumerAgent implements Agent {
                         // Close current subscription before starting next replay.
                         CloseHelper.quietClose(replayDestinationSubscription);
                         replayDestinationSubscription = null;
-                        currentRecordingIndex++;
-                        if (currentRecordingIndex < recordings.size()) {
-                            boolean isLatest = isCurrentRecordingLatest();
-                            startReplayForRecording(recordings.get(currentRecordingIndex), isLatest);
-                        } else {
-                            // This branch should not be reached as we start the last recording in latest mode.
-                            log.warn("No more recordings to replay");
-                            onClose();
-                        }
+                        startNextRecordingReplay();
                     }
                 }
             }
             default -> log.error("Unknown state {}", currentState);
         }
         return 0;
+    }
+
+    private void startNextRecordingReplay() {
+        currentRecordingIndex++;
+        if (currentRecordingIndex >= recordings.size()) {
+            log.warn("No more recordings to replay");
+            onClose();
+            return;
+        }
+        boolean isLatest = isCurrentRecordingLatest();
+        final RecordingInfo recording = recordings.get(currentRecordingIndex);
+        if (replayDestinationSubscription != null) {
+            CloseHelper.quietClose(replayDestinationSubscription);
+        }
+        final var localReplayChannelEphemeral = AERON_UDP_ENDPOINT + thisHost + ":0";
+        replayDestinationSubscription = aeron.addSubscription(localReplayChannelEphemeral, REPLAY_STREAM_ID);
+        final var actualReplayChannel = replayDestinationSubscription.tryResolveChannelEndpointPort();
+        boolean isActiveRecording = recording.stopPosition == -1;
+        final long replayLength = isActiveRecording ? Long.MAX_VALUE : (recording.stopPosition - recording.startPosition);
+        setCurrentReplayStopPosition(isActiveRecording ? Long.MAX_VALUE : recording.stopPosition);
+        if (replayLength <= 0) {
+            log.info("{} | Skipping Replay for recordingId {}. replayLength {}, startPos {} stopPos {}",
+                    this.name, recording.recordingId, replayLength, recording.startPosition, recording.stopPosition);
+            startNextRecordingReplay();
+            return;
+        }
+        final long replaySession = archive.startReplay(recording.recordingId,
+                recording.startPosition, replayLength, actualReplayChannel, REPLAY_STREAM_ID);
+        log.info("{} | Replaying recordingId {} from {} to {} (isActiveRecording: {} isLatest: {}), replaySession {}", this.name,
+                recording.recordingId, recording.startPosition, recording.stopPosition, isActiveRecording, isLatest, replaySession);
+
     }
 
     private void connectToArchive() {
@@ -180,10 +210,11 @@ public class ArchiveConsumerAgent implements Agent {
                         onClose();
                         return;
                     }
-                    currentRecordingIndex = 0;
+
                     // If only one recording exists, treat it as the latest (tailing) replay.
-                    boolean isLatest = isCurrentRecordingLatest();
-                    startReplayForRecording(recordings.get(currentRecordingIndex), isLatest);
+
+                    startNextRecordingReplay();
+
                     currentState = State.POLLING_SUBSCRIPTION;
 
                     var lastRec = recordings.getLast();
@@ -219,7 +250,8 @@ public class ArchiveConsumerAgent implements Agent {
             if (recording.stopPosition > 0) {
                 log.info("{} | Latest recording recordingId {} finished, stopping scheduler", this.name, recording.recordingId);
                 scheduledFuture.cancel(false);
-                currentReplayStopPosition = recording.stopPosition;
+                long stopPosition = recording.stopPosition;
+                setCurrentReplayStopPosition(stopPosition);
                 if (lastImagePosition >= currentReplayStopPosition) {
                     log.info("{} | Latest recording already fully replayed, stopping consumer. " +
                                     "lastImagePosition {}. currentReplayStopPosition {}. {}", this.name,
@@ -232,29 +264,13 @@ public class ArchiveConsumerAgent implements Agent {
         });
     }
 
-    private boolean isCurrentRecordingLatest() {
-        return currentRecordingIndex == recordings.size() - 1;
+    private void setCurrentReplayStopPosition(long stopPosition) {
+        log.info("{} | Setting currentReplayStopPosition to {}", this.name, stopPosition);
+        currentReplayStopPosition = stopPosition;
     }
 
-    /**
-     * Starts replay for the given recording.
-     *
-     * @param recording the recording info to replay.
-     * @param isLatest  if true, use Long.MAX_VALUE as replay length to continue tailing new messages.
-     */
-    private void startReplayForRecording(final RecordingInfo recording, final boolean isLatest) {
-        if (replayDestinationSubscription != null) {
-            CloseHelper.quietClose(replayDestinationSubscription);
-        }
-        final var localReplayChannelEphemeral = AERON_UDP_ENDPOINT + thisHost + ":0";
-        replayDestinationSubscription = aeron.addSubscription(localReplayChannelEphemeral, REPLAY_STREAM_ID);
-        final var actualReplayChannel = replayDestinationSubscription.tryResolveChannelEndpointPort();
-        final long replayLength = isLatest ? Long.MAX_VALUE : (recording.stopPosition - recording.startPosition);
-        currentReplayStopPosition = isLatest ? Long.MAX_VALUE : recording.stopPosition;
-        final long replaySession = archive.startReplay(recording.recordingId,
-                recording.startPosition, replayLength, actualReplayChannel, REPLAY_STREAM_ID);
-        log.info("{} | Replaying recordingId {} from {} to {} (isLatest: {}), replaySession {}", this.name,
-                recording.recordingId, recording.startPosition, recording.stopPosition, isLatest, replaySession);
+    private boolean isCurrentRecordingLatest() {
+        return currentRecordingIndex == recordings.size() - 1;
     }
 
     /**
@@ -357,15 +373,10 @@ public class ArchiveConsumerAgent implements Agent {
     }
 
     @Data
+    @AllArgsConstructor
     private static class RecordingInfo {
         final long recordingId;
         final long startPosition;
         final long stopPosition;
-
-        RecordingInfo(final long recordingId, final long startPosition, final long stopPosition) {
-            this.recordingId = recordingId;
-            this.startPosition = startPosition;
-            this.stopPosition = stopPosition;
-        }
     }
 }

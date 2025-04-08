@@ -30,6 +30,7 @@ public class ExchangeApplication {
     private MarketDataSnapshotPublisher snapshotPublisher;
     private MarketDataPublisher marketDataPublisher;
     private OrderServer orderServer;
+    private AppState appState;
 
     public static void main(String[] args) throws UnknownHostException {
         ExchangeApplication exchangeApplication = new ExchangeApplication();
@@ -43,6 +44,7 @@ public class ExchangeApplication {
         log.info("startExchange. Starting.");
         leadershipManager = new ZooKeeperLeadershipManager();
         leadershipManager.start();
+        appState = new AppState(leadershipManager);
 
         clientRequests = new DisruptorLFQueue<>(1024, "clientRequests", ProducerType.SINGLE);
         clientResponses = new DisruptorLFQueue<>(1024, "clientResponses", ProducerType.SINGLE);
@@ -51,9 +53,9 @@ public class ExchangeApplication {
 
         matchingEngine = new MatchingEngine(clientRequests, clientResponses, marketUpdates);
 
-        orderServer = new OrderServer(clientRequests, clientResponses, leadershipManager);
-        marketDataPublisher = new MarketDataPublisher(marketUpdates, sequencedMarketUpdates, leadershipManager);
-        snapshotPublisher = new MarketDataSnapshotPublisher(sequencedMarketUpdates, leadershipManager, Constants.ME_MAX_TICKERS);
+        orderServer = new OrderServer(clientRequests, clientResponses, leadershipManager, appState);
+        marketDataPublisher = new MarketDataPublisher(marketUpdates, sequencedMarketUpdates, appState);
+        snapshotPublisher = new MarketDataSnapshotPublisher(sequencedMarketUpdates, appState, Constants.ME_MAX_TICKERS);
 
         clientRequests.init();
         clientResponses.init();

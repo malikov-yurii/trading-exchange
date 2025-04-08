@@ -12,7 +12,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trading.api.OrderRequest;
 import trading.api.OrderRequestSerDe;
-import aeron.AeronConsumer;
 import aeron.AeronPublisher;
 import trading.common.LFQueue;
 import trading.common.Utils;
@@ -20,14 +19,14 @@ import trading.common.Utils;
 public class ReplicationConsumer implements Runnable {
     private static final Logger log = LoggerFactory.getLogger(ReplicationConsumer.class);
 
-    private final LFQueue<OrderRequest> requestQueue;
+    private final LFQueue<OrderRequest> clientRequests;
 
     private final AeronPublisher replicationAckPublisher;
     private final MutableDirectBuffer seqNumBuffer;
     private AgentRunner runner;
 
     public ReplicationConsumer(LFQueue<OrderRequest> clientRequests) {
-        this.requestQueue = clientRequests;
+        this.clientRequests = clientRequests;
 
         String aeronIp = Utils.env("AERON_IP", "224.0.1.1");
 
@@ -41,9 +40,9 @@ public class ReplicationConsumer implements Runnable {
 
     private void processReplicationEvent(DirectBuffer buffer, int offset, int length) {
         OrderRequest orderRequest = OrderRequestSerDe.deserializeClientRequest(buffer, offset, length);
-        log.info("Received {}", orderRequest);
+        log.info("Received {} offset {} length {}", orderRequest, offset, length);
 
-        requestQueue.offer(orderRequest);
+        clientRequests.offer(orderRequest);
 
         seqNumBuffer.putLong(0, orderRequest.getSeqNum());
         replicationAckPublisher.publish(seqNumBuffer, 0, Long.BYTES);
@@ -63,13 +62,13 @@ public class ReplicationConsumer implements Runnable {
         log.info("ReplicationConsumer starting");
 
         FragmentHandler fragmentHandler = (buffer, offset, length, header) -> processReplicationEvent(buffer, offset, length);
-
         int streamId = Integer.parseInt(Utils.env("REPLICATION_STREAM", "3001"));
+        ArchiveConsumerAgent.ReplayStrategy replayStrategy = ArchiveConsumerAgent.ReplayStrategy.REPLAY_OLD_AND_SUBSCRIBE;
         final ArchiveConsumerAgent hostAgent =
-                new ArchiveConsumerAgent(streamId, fragmentHandler,
-                        ArchiveConsumerAgent.ReplayStrategy.REPLAY_OLD_AND_SUBSCRIBE, "REPLICATION");
+                new ArchiveConsumerAgent(streamId, fragmentHandler, replayStrategy, "REPLICATION");
 
         runner = new AgentRunner(new SleepingMillisIdleStrategy(), ArchiveConsumerAgent::errorHandler, null, hostAgent);
+
         AgentRunner.startOnThread(runner);
 
         log.info("ReplicationConsumer shutting down");

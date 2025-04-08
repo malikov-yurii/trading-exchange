@@ -1,14 +1,14 @@
 package trading.exchange.marketdata;
 
+import aeron.AeronPublisher;
 import org.agrona.ExpandableDirectByteBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trading.api.MarketUpdate;
 import trading.api.MarketUpdateSerDe;
-import aeron.AeronPublisher;
 import trading.common.LFQueue;
 import trading.common.Utils;
-import trading.exchange.LeadershipManager;
+import trading.exchange.AppState;
 
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -18,12 +18,12 @@ public class MarketDataPublisher {
     private final LFQueue<MarketUpdate> marketUpdateLFQueue;
     private final LFQueue<MarketUpdate> sequencedMarketUpdates;
     private final AeronPublisher aeronPublisher;
-    private final LeadershipManager leadershipManager;
+    private final AppState appState;
     private final AtomicLong msgSeqNum = new AtomicLong();
 
     public MarketDataPublisher(LFQueue<MarketUpdate> marketUpdateLFQueue,
                                LFQueue<MarketUpdate> sequencedMarketUpdates,
-                               LeadershipManager leadershipManager) {
+                               AppState appState) {
 
         String mdIp = Utils.env("AERON_IP", "224.0.1.1");
         String mdPort = Utils.env("MD_PORT", "40456");
@@ -31,7 +31,7 @@ public class MarketDataPublisher {
         this.aeronPublisher = new AeronPublisher(channel, 1001, "MD");
         this.marketUpdateLFQueue = marketUpdateLFQueue;
         this.sequencedMarketUpdates = sequencedMarketUpdates;
-        this.leadershipManager = leadershipManager;
+        this.appState = appState;
         this.marketUpdateLFQueue.subscribe(this::publish);
         log.info("MarketDataPublisher initialized");
     }
@@ -42,8 +42,8 @@ public class MarketDataPublisher {
             return;
         }
 
-        if (leadershipManager.isFollower()) {
-            log.info("Not Published {}", marketUpdate);
+        if (appState.isNotRecoveredLeader()) {
+            log.info("Not Publishing {}", marketUpdate);
             return;
         }
 
