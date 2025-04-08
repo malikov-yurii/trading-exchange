@@ -108,7 +108,7 @@ public class OrderGatewayClient {
     }
 
     private String currentServerUri() {
-        return orderServerUris.get(currentConnectionServerId);
+        return currentConnectionServerId == null ? null : orderServerUris.get(currentConnectionServerId);
     }
 
     private void waitActiveChannel() {
@@ -117,7 +117,7 @@ public class OrderGatewayClient {
                 log.info("Waiting 1s for active channel...");
                 Thread.sleep(1000);
             } catch (InterruptedException e) {
-                // Ignore
+                log.info("Interrupted while waiting for active channel");
             }
         }
     }
@@ -129,44 +129,28 @@ public class OrderGatewayClient {
         }
 
         group = new NioEventLoopGroup(1);
-        connectPreferPrimary();
+        tryConnect(0);
     }
 
-    private synchronized void connectPreferPrimary() {
-        if (currentConnectionServerId != null && channel != null && channel.isActive()) {
-            log.info("connectPreferPrimary. currentConnectionServer {} channel.isActive {}",
-                    currentServerUri(), channel.isActive());
-            return;
-        }
-
-        for (int serverId = 0; serverId < orderServerUris.size(); serverId++) {
-            if (tryConnect(serverId)) {
-                currentConnectionServerId = serverId;
-                return;
-            }
-        }
-
-        currentConnectionServerId = null;
-
-        log.warn("Both primary and backup failed. Will retry in 2 seconds...");
+    private static void sleep(int millis) {
         try {
-            Thread.sleep(2000);
+            Thread.sleep(millis);
         } catch (InterruptedException e) {
             // Ignore
         }
-        connectPreferPrimary();
     }
 
-//    TODO: try re-connect not more than once 100ms
-    private synchronized boolean tryConnect(Integer serverId) {
+    //    TODO: try re-connect not more than once 100ms
+    private synchronized void tryConnect(Integer serverId) {
         try {
             if (connecting) {
                 log.warn("Already connecting. Skipping...");
-                return false;
+                return;
             }
             String serverUri = orderServerUris.get(serverId);
             log.info("Trying to connect to {}...", serverUri);
             connecting = true;
+            currentConnectionServerId = serverId;
             Channel oldChannel = channel;
             channel = null;
             if (oldChannel != null && oldChannel.isActive()) {
@@ -182,6 +166,7 @@ public class OrderGatewayClient {
                     .group(group)
                     .channel(NioSocketChannel.class)
                     .option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT)
+                    .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 1_000)
                     .handler(new ChannelInitializer<>() {
                         @Override
                         protected void initChannel(Channel ch) {
@@ -222,17 +207,17 @@ public class OrderGatewayClient {
                     tryConnectToAnotherServer(serverId);
                 }
             });
-            return true;
         } catch (Exception e) {
-//            log.warn("Failed to connect to {} -> {}", serverUri, e.getMessage());
+            log.warn("Failed to connect to serverId=[{}] -> {}", serverId, e.getMessage());
             connecting = false;
-            return false;
         }
     }
 
-    private void tryConnectToAnotherServer(int serverId) {
+    private synchronized void tryConnectToAnotherServer(int serverId) {
         int anotherServerId = (serverId + 1) % orderServerUris.size();
-        log.info("Trying to connect to another server {}...", orderServerUris.get(anotherServerId));
+        int millis = 2000;
+        log.warn("tryConnectToAnotherServer. Will retry in {} seconds...", millis / 1000);
+        sleep(millis);
         tryConnect(anotherServerId);
     }
 
@@ -292,7 +277,8 @@ public class OrderGatewayClient {
         @Override
         public void channelInactive(ChannelHandlerContext ctx) {
             log.info("channelInactive. We lost connection to {}", targetServer);
-            ctx.channel().eventLoop().submit(OrderGatewayClient.this::connectPreferPrimary);
+            ctx.channel().eventLoop()
+                    .submit(() -> tryConnectToAnotherServer(currentConnectionServerId));
         }
 
         @Override
