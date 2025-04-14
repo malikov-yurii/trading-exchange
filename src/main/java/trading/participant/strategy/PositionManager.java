@@ -17,7 +17,7 @@ public class PositionManager {
 
     public void updateBBO(long tickerId, MarketOrderBook.BBO bbo) {
         Position position = positions[(int) tickerId];
-        position.updateBBO(bbo);
+        position.updatePnl(bbo);
     }
 
     public void addFill(OrderMessage orderMessage) {

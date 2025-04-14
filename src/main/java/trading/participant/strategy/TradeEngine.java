@@ -10,6 +10,7 @@ import trading.api.OrderRequest;
 import trading.api.Side;
 import trading.common.Constants;
 import trading.common.LFQueue;
+import trading.participant.ordergateway.OrderGatewayClient;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -34,7 +35,7 @@ public class TradeEngine {
     public TradeEngine(AlgoType algoType,
                        LFQueue<OrderRequest> orderRequestQueue,
                        LFQueue<TradeEngineUpdate> tradeEngineUpdateQueue,
-                       long clientId) {
+                       long clientId, OrderGatewayClient orderGatewayClient) {
         this.orderRequestQueue = orderRequestQueue;
 
         this.clientId = clientId;
@@ -56,7 +57,7 @@ public class TradeEngine {
         } else if (algoType == AlgoType.LIQUIDITY_TAKER) {
             this.algo = new LiquidityTaker(featureEngine, orderManager, tradeEngineConfigMap);
         } else if (algoType == AlgoType.RANDOM) {
-            this.algo = new RandomOrderSender(this);
+            this.algo = new RandomOrderSender(this, orderGatewayClient);
         } else {
             throw new IllegalArgumentException("Unknown strategy type: " + algoType);
         }

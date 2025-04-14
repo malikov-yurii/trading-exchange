@@ -2,7 +2,11 @@
 
 set -e
 
+./down.sh
+
 mvn clean package -DskipTests
 
-docker-compose build
+docker compose build
+
+./startInfra.sh
 

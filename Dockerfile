@@ -1,5 +1,17 @@
-FROM openjdk:11-jre-slim
+ARG REPO_NAME=docker.io/
+ARG IMAGE_NAME=azul/zulu-openjdk-debian
+ARG IMAGE_TAG=21
+FROM ${REPO_NAME}${IMAGE_NAME}:${IMAGE_TAG}
 
-COPY --chmod=755 target/trading.jar /app/trading.jar
+SHELL [ "/bin/bash", "-o", "pipefail", "-c" ]
 
-ENTRYPOINT ["java", "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED", "-jar", "/app/trading.jar"]
+COPY --chmod=755 bin /root/bin
+
+
+RUN /root/bin/setup-docker.sh
+
+WORKDIR /root/jar/
+
+COPY --chmod=755 target/trading.jar /root/jar/app.jar
+
+ENTRYPOINT ["/root/bin/entrypoint.sh"]

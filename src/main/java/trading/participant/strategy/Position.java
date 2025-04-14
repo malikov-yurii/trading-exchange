@@ -21,7 +21,7 @@ public class Position {
     private double avgPrice;
     private double tradedQty;
 
-    public void updateBBO(MarketOrderBook.BBO bbo) {
+    public void updatePnl(MarketOrderBook.BBO bbo) {
         if (position == 0 || bbo.getBidPrice() == PRICE_INVALID || bbo.getAskPrice() == PRICE_INVALID) {
             return;
         }

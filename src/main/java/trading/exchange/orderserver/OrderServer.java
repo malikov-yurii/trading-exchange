@@ -104,8 +104,7 @@ public class OrderServer {
     }
 
     /**
-     * Start the server. Leadership changes will start/stop the Netty server
-     * and replication consumer accordingly.
+     * Start the server. Leadership changes will start/stop the Netty server and replication publisher/consumer.
      */
     public synchronized void start() {
         leadershipManager.onLeadershipAcquired(() -> {
@@ -328,7 +327,7 @@ public class OrderServer {
                 }
             }
 
-            log.info("Sent response {}. OK", orderMessage);
+            log.info("Sent {}", orderMessage);
         } catch (Exception e) {
             log.error("processResponse. Error processing response", e);
         }
@@ -358,6 +357,7 @@ public class OrderServer {
 
         @Override
         protected void channelRead0(ChannelHandlerContext ctx, WebSocketFrame frame) {
+            log.info("Received frame: {}", frame != null ? frame.getClass().getSimpleName(): null);
             if (frame instanceof CloseWebSocketFrame) {
                 ctx.close();
                 return;
@@ -378,13 +378,13 @@ public class OrderServer {
 
             // Must be a BinaryWebSocketFrame
             if (frame instanceof BinaryWebSocketFrame) {
-                ByteBuf content = ((BinaryWebSocketFrame) frame).content();
-                int length = content.readableBytes();
-                byte[] data = new byte[length];
-                content.readBytes(data);
-                DirectBuffer directBuffer = new UnsafeBuffer(data);
-
                 try {
+                    ByteBuf content = frame.content();
+                    int length = content.readableBytes();
+                    byte[] data = new byte[length];
+                    content.readBytes(data);
+                    DirectBuffer directBuffer = new UnsafeBuffer(data);
+
                     OrderRequest orderRequest = OrderRequestSerDe.deserializeClientRequest(directBuffer, 0, length);
                     long clientId = orderRequest.getClientId();
 
@@ -393,6 +393,8 @@ public class OrderServer {
                         log.info("First request from clientId={}", clientId);
                         channelsByClientId.put(clientId, ctx.channel());
                         clientIdByChannelId.put(ctx.channel().id(), clientId);
+                    } else {
+//                        log.info("Received BinaryWebSocketFrame length={}, from clientId={}", length, clientId);
                     }
 
                     // Hand off to the RequestSequencer

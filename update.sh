@@ -5,6 +5,3 @@ set -e
 git pull origin dev
 
 ./build.sh
-
-./startInfra.sh
-

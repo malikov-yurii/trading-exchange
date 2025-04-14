@@ -7,7 +7,6 @@ target
 /data/
 *log*.txt
 */.ideacd
-/bin
 *.log
 
 ### STS ###

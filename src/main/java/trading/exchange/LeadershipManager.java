@@ -1,9 +1,14 @@
 package trading.exchange;
 
-public interface LeadershipManager extends LeadershipStateProvider {
+public interface LeadershipManager {
 
     void onLeadershipAcquired(Runnable task);
 
     void onLeadershipLost(Runnable task);
 
+    boolean hasLeadership();
+
+    default boolean isFollower() {
+        return !hasLeadership();
+    }
 }

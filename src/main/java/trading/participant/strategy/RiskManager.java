@@ -4,7 +4,6 @@ import trading.api.Side;
 
 public class RiskManager {
 
-
     private final RiskInfo[] tickerRiskInfos;
 
     public RiskManager(int numTickers, PositionManager positionManager, TradeEngineConfigMap tradeEngineConfigMap) {

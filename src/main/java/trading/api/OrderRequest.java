@@ -32,7 +32,7 @@ public class OrderRequest {
     @Override
     public String toString() {
         return String.format(
-                "ClientRequest{ %2d: %-10s clOrdId=%-4d %-5s %7s client=%d ticker=%d }",
+                "ClientRequest{ seq: %2d, %-10s clOrdId=%-4d %-5s %7s client=%d ticker=%d }",
                 seqNum,
                 type,
                 orderId,

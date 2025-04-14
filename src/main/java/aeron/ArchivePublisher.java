@@ -173,10 +173,10 @@ public class ArchivePublisher {
                 }
             }
         } while (result < 0);
-//        if (log.isDebugEnabled()) {
-//            log.debug("[{}] Published msg len={}. Result: {}", name, length, result);
-//        }
-        log.info(" [{}] Published msg len={}. Result: {}", name, length, result);
+        if (log.isDebugEnabled()) {
+            log.debug("[{}] Published msg len={}. Result: {}", name, length, result);
+        }
+//        log.info(" [{}] Published msg len={}. Result: {}", name, length, result);
     }
 
     private void setupMonitoring() {

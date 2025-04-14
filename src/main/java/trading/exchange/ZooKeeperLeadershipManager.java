@@ -28,19 +28,20 @@ public class ZooKeeperLeadershipManager implements LeadershipManager {
     private final List<Runnable> leadershipLostTasks = new ArrayList<>();
 
     public ZooKeeperLeadershipManager() throws UnknownHostException {
-        String host = Utils.env("ZOOK_HOST", "zookeeper");
+        String host = Utils.env("ZOO_HOST", "zookeeper");
         String port = Utils.env("ZOO_PORT_NUMBER", "2181");
         String zooKeeperCluster = host + ":" + port;
-        int zooKeeperSessionTimeoutMs = 3_000;
-        int zooKeeperConnectionTimeoutMs = 3_000;
-        int zooKeeperExponentialBackoffRetryBaseSleepMs = 1_000;
-        log.info("init. curatorFramework. zooKeeperCluster [{}], sessionTimeoutMs [{}], connectionTimeoutMs [{}], exponentialBackoffRetryBaseSleepMs [{}]",
-                zooKeeperCluster, zooKeeperSessionTimeoutMs, zooKeeperConnectionTimeoutMs, zooKeeperExponentialBackoffRetryBaseSleepMs);
+        int zooSessionTimeoutMs = 3_000;
+        int zooConnectionTimeoutMs = 3_000;
+        int zooExponentialBackoffRetryBaseSleepMs = 1_000;
+        log.info("init. curatorFramework. zooKeeperCluster [{}], sessionTimeoutMs [{}], connectionTimeoutMs [{}], " +
+                        "exponentialBackoffRetryBaseSleepMs [{}]", zooKeeperCluster, zooSessionTimeoutMs,
+                zooConnectionTimeoutMs, zooExponentialBackoffRetryBaseSleepMs);
         CuratorFramework client = CuratorFrameworkFactory.builder()
                 .connectString(zooKeeperCluster)
-                .sessionTimeoutMs(zooKeeperSessionTimeoutMs)
-                .connectionTimeoutMs(zooKeeperConnectionTimeoutMs)
-                .retryPolicy(new ExponentialBackoffRetry(zooKeeperExponentialBackoffRetryBaseSleepMs,
+                .sessionTimeoutMs(zooSessionTimeoutMs)
+                .connectionTimeoutMs(zooConnectionTimeoutMs)
+                .retryPolicy(new ExponentialBackoffRetry(zooExponentialBackoffRetryBaseSleepMs,
                         Integer.MAX_VALUE /* Wait Zookeeper cluster to be back online */, Integer.MAX_VALUE))
                 .build();
         client.start();

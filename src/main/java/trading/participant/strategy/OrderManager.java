@@ -125,28 +125,25 @@ public class OrderManager {
         order.setOrderStatus(OrderStatus.PENDING_CANCEL);
     }
 
-
     @Getter
     @Setter
     @AllArgsConstructor
     @NoArgsConstructor
     private static class Order {
-        private long tickerId = Constants.TICKER_ID_INVALID;
         private long orderId = Constants.ORDER_ID_INVALID;
-        private Side side = Side.INVALID;
+        private OrderStatus orderStatus = OrderStatus.INVALID;
         private long price = Constants.PRICE_INVALID;
         private long qty = Constants.QTY_INVALID;
-        private OrderStatus orderStatus = OrderStatus.INVALID;
+        private Side side = Side.INVALID;
+        private long tickerId = Constants.TICKER_ID_INVALID;
 
         @Override
         public String toString() {
             return "Order{" +
-                    "orderId=" + orderId +
-                    ", orderStatus=" + orderStatus +
-                    ", price=" + price +
-                    ", qty=" + qty +
-                    ", side=" + side +
-                    ", tickerId=" + tickerId +
+                    "id: " + orderId +
+                    ", " + side + " " + qty + "@" + price +
+                    ", status: " + orderStatus +
+                    ", ticker: " + tickerId +
                     '}';
         }
     }
@@ -184,17 +181,13 @@ public class OrderManager {
                 return orders[side.toIndex()];
             }
         }
-
-
     }
 
     public enum OrderStatus {
-
         INVALID,
         PENDING_NEW,
         LIVE,
         PENDING_CANCEL,
         DEAD;
-
     }
 }

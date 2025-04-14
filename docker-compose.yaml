@@ -9,7 +9,7 @@ x-common-env: &common-env
   REPLICATION_ACK_STREAM: 3001
   WS_IP: 0.0.0.0
   AERON_DIR: /dev/shm/aeron-root/dir
-  ZOOK_HOST: zookeeper
+  ZOO_HOST: zookeeper
   ZOO_PORT_NUMBER: 2181
   ARCHIVEHOST: archive-host
   CONTROLPORT: 17000
@@ -23,12 +23,13 @@ services:
     shm_size: "1gb"
     build:
       context: .
-      dockerfile: trader/Dockerfile
+    entrypoint: /root/bin/trader_entrypoint.sh
     environment:
       CLIENT_ID: 1
       ALGO_TYPE: RANDOM
       ORDER_SERVER_HOSTS: exchange-1,exchange-2,exchange-3
       THISHOST: "trader-r"
+      SLEEP_TIME_MS: 100
       <<: *common-env
     hostname: trader-r
     volumes:
@@ -45,7 +46,7 @@ services:
     shm_size: "1gb"
     build:
       context: .
-      dockerfile: exchange/Dockerfile
+    entrypoint: /root/bin/exchange_entrypoint.sh
     environment:
       INSTANCE_ID: "1"
       THISHOST: "exchange-1"
@@ -65,7 +66,7 @@ services:
     shm_size: "1gb"
     build:
       context: .
-      dockerfile: exchange/Dockerfile
+    entrypoint: /root/bin/exchange_entrypoint.sh
     environment:
       INSTANCE_ID: "2"
       THISHOST: "exchange-2"
@@ -85,7 +86,7 @@ services:
     shm_size: "1gb"
     build:
       context: .
-      dockerfile: exchange/Dockerfile
+    entrypoint: /root/bin/exchange_entrypoint.sh
     environment:
       INSTANCE_ID: "2"
       THISHOST: "exchange-3"
@@ -102,10 +103,10 @@ services:
 
   archive-host:
     container_name: archive-host
-    shm_size: "1gb"
+    shm_size: "2gb"
     build:
       context: .
-      dockerfile: aeron-archive-host/Dockerfile
+    entrypoint: /root/bin/archive_host_entrypoint.sh
     environment:
       DELETE_AERON_DIR: true
       <<: *common-env

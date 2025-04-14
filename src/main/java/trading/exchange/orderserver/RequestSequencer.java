@@ -43,7 +43,7 @@ public class RequestSequencer implements Runnable {
     public void process(OrderRequest orderRequest) {
         long seq = nextSeqNum.getAndIncrement();
         orderRequest.setSeqNum(seq);
-        log.info("Received {}", orderRequest);
+        log.info("Processing {}", orderRequest);
 
         enqueueOrderReq(orderRequest);
 
@@ -57,7 +57,7 @@ public class RequestSequencer implements Runnable {
         int ind = (int) (orderRequest.getSeqNum() % ringBuffer.length);
         while (ringBuffer[ind] != null) {
             final int millis = 10;
-            log.warn("RingBuffer is full. Sleeping {}ms", millis);
+            log.error("RingBuffer is full. Sleeping {}ms", millis);
             try {
 
                 Thread.sleep(millis);
@@ -79,7 +79,7 @@ public class RequestSequencer implements Runnable {
             // Dup Ack
             return;
         }
-        log.info("Received Ack for msgSeqNum={} OrderRequest: {}", ackedReqSeqNum, orderRequest);
+        log.info("Received Ack: {} {}", ackedReqSeqNum, orderRequest);
         requestQueue.offer(orderRequest);
     }
 

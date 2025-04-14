@@ -23,8 +23,6 @@ import java.util.stream.Stream;
 
 public class ParticipantApplication {
     private static final Logger log = LoggerFactory.getLogger(ParticipantApplication.class);
-//    private static final String ORDER_SERVER_URI = "ws://localhost:8080/ws";
-    private final AtomicLong orderSeqNum = new AtomicLong(1);
 
     public static void main(String[] args) throws Exception {
 
@@ -56,7 +54,7 @@ public class ParticipantApplication {
         AlgoType algoType = AlgoType.valueOf(env("ALGO_TYPE", "MARKET_MAKER"));
         int clientId = Integer.parseInt(env("CLIENT_ID", "1"));
 
-        TradeEngine tradeEngine = new TradeEngine(algoType, orderRequests, tradeEngineUpdates, clientId);
+        TradeEngine tradeEngine = new TradeEngine(algoType, orderRequests, tradeEngineUpdates, clientId, orderGatewayClient);
 
         tradeEngineUpdates.init();
         orderRequests.init();

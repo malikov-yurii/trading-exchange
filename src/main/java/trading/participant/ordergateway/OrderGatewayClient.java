@@ -81,7 +81,7 @@ public class OrderGatewayClient {
         orderRequests.subscribe(this::doSendOrderRequest);
     }
 
-    private void doSendOrderRequest(OrderRequest orderRequest) {
+    public void doSendOrderRequest(OrderRequest orderRequest) {
         waitActiveChannel();
         try {
             long seq = orderSeqNum.getAndIncrement();
@@ -100,8 +100,14 @@ public class OrderGatewayClient {
 
             BinaryWebSocketFrame frame = new BinaryWebSocketFrame(nettyBuf);
             ChannelFuture channelFuture = channel.writeAndFlush(frame);
-            log.info("Sent orderRequest seq={} ticker={} side={} to {}", seq, orderRequest.getTickerId(),
-                    orderRequest.getSide(), currentServerUri());
+            log.info("Sending {} to {}", orderRequest, currentServerUri());
+            channelFuture.addListener(f -> {
+                if (f.isSuccess()) {
+                    log.info("Sent OK {}", orderRequest);
+                } else {
+                    log.error("Failed to send {} -> {}", orderRequest, f.cause().getMessage());
+                }
+            });
         } catch (Exception e) {
             log.error("Failed to send orderRequest", e);
         }
@@ -215,8 +221,8 @@ public class OrderGatewayClient {
 
     private synchronized void tryConnectToAnotherServer(int serverId) {
         int anotherServerId = (serverId + 1) % orderServerUris.size();
-        int millis = 2000;
-        log.warn("tryConnectToAnotherServer. Will retry in {} seconds...", millis / 1000);
+        int millis = 500;
+        log.warn("tryConnectToAnotherServer. Will retry in {} ms...", millis);
         sleep(millis);
         tryConnect(anotherServerId);
     }
@@ -295,14 +301,11 @@ public class OrderGatewayClient {
                 return;
             }
 
-            if (msg instanceof FullHttpResponse) {
-                FullHttpResponse response = (FullHttpResponse) msg;
+            if (msg instanceof FullHttpResponse response) {
                 throw new IllegalStateException("Unexpected FullHttpResponse: " + response.status());
-            } else if (msg instanceof TextWebSocketFrame) {
-                TextWebSocketFrame textFrame = (TextWebSocketFrame) msg;
+            } else if (msg instanceof TextWebSocketFrame textFrame) {
                 log.info("Received Text frame from {}: {}", targetServer, textFrame.text());
-            } else if (msg instanceof BinaryWebSocketFrame) {
-                BinaryWebSocketFrame binFrame = (BinaryWebSocketFrame) msg;
+            } else if (msg instanceof BinaryWebSocketFrame binFrame) {
                 ByteBuf content = binFrame.content();
                 ByteBuf leBuf = content.order(ByteOrder.LITTLE_ENDIAN); // match server endianness
                 OrderMessage orderMsg = OrderMessageSerDe.parseOrderMessage(leBuf);
