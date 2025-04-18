@@ -9,8 +9,6 @@ import io.aeron.driver.MediaDriver;
 import io.aeron.driver.ThreadingMode;
 import io.aeron.exceptions.TimeoutException;
 import io.aeron.logbuffer.FragmentHandler;
-import lombok.AllArgsConstructor;
-import lombok.Data;
 import org.agrona.CloseHelper;
 import org.agrona.concurrent.Agent;
 import org.agrona.concurrent.IdleStrategy;
@@ -68,6 +66,8 @@ public class ArchiveConsumerAgent implements Agent {
     private final ReplayStrategy replayStrategy;
 
     private ScheduledExecutorService scheduler;
+    private final List<Runnable> onReplayFinish = new ArrayList<>();
+    private boolean isOldMsgReplayInProgress = true;
 
     public ArchiveConsumerAgent(int streamId, final FragmentHandler fragmentHandler,
                                 final ReplayStrategy replayStrategy, String name) {
@@ -109,6 +109,10 @@ public class ArchiveConsumerAgent implements Agent {
         this.currentState = State.AERON_READY;
     }
 
+    public void onReplayOldFinish(Runnable onReplayFinishCallback) {
+        this.onReplayFinish.add(onReplayFinishCallback);
+    }
+
     public static void errorHandler(final Throwable throwable) {
         log.error("agent error {}", throwable.getMessage(), throwable);
     }
@@ -116,8 +120,11 @@ public class ArchiveConsumerAgent implements Agent {
     @Override
     public int doWork() {
         switch (currentState) {
-            case AERON_READY -> connectToArchive();
-            case POLLING_SUBSCRIPTION -> {
+            case AERON_READY:
+                connectToArchive();
+                break;
+
+            case POLLING_SUBSCRIPTION:
                 if (replayDestinationSubscription == null) {
                     startRecordingReplay(currentRecordingIndex);
                     return 0;
@@ -148,8 +155,11 @@ public class ArchiveConsumerAgent implements Agent {
                         }
                     }
                 }
-            }
-            default -> log.error("Unknown state {}", currentState);
+                break;
+
+            default:
+                log.error("Unknown state {}", currentState);
+                break;
         }
         return 0;
     }
@@ -157,11 +167,10 @@ public class ArchiveConsumerAgent implements Agent {
     private void startRecordingReplay(int recordingInd) {
         stopCurrentRecordingReplay();
         if (recordingInd >= recordings().size()) {
-            if (replayStrategy == ReplayStrategy.REPLAY_OLD) {
-                log.info("{} | Finished replaying all recordings", this.name);
-                onClose();
+            if (isOldMsgReplayInProgress) {
+                onReplayFinish();
             } else {
-                log.info("{} | Finished replaying all recordings, but waiting for new ones", this.name);
+                idleStrategy.idle();
             }
             return;
         }
@@ -174,28 +183,46 @@ public class ArchiveConsumerAgent implements Agent {
         boolean isActiveRecording = recording.stopPosition == -1;
         final long replayLength = isActiveRecording ? Long.MAX_VALUE : (recording.stopPosition - recording.startPosition);
         setCurrentReplayStopPosition(isActiveRecording ? Long.MAX_VALUE : recording.stopPosition);
+
         if (replayLength <= 0) {
             log.info("{} | Skipping Replay for recordingId {}. replayLength {}, startPos {} stopPos {}",
                     this.name, recording.recordingId, replayLength, recording.startPosition, recording.stopPosition);
-            startRecordingReplay(++recordingInd);
+            if (recordingInd < recordings().size() - 1) {
+                startRecordingReplay(++recordingInd);
+            } else {
+                onReplayFinish();
+            }
             return;
         }
+
         final long replaySession = archive.startReplay(recording.recordingId,
                 recording.startPosition, replayLength, actualReplayChannel, REPLAY_STREAM_ID);
+
         log.info("{} | Replaying recordingId {} from {} to {} (isActiveRecording: {} isLatest: {}), replaySession {}", this.name,
                 recording.recordingId, recording.startPosition, recording.stopPosition, isActiveRecording, isCurrentRecordingLatest(), replaySession);
+    }
 
+    private boolean onReplayFinish() {
+        if (replayStrategy == ReplayStrategy.REPLAY_OLD) {
+            log.info("{} | Finished replaying old recordings. Stopping consumer.", this.name);
+            onClose();
+            return true;
+        }
+        this.isOldMsgReplayInProgress = false;
+        this.onReplayFinish.forEach(Runnable::run);
+        log.info("{} | Finished replaying old recordings, but waiting for new ones", this.name);
+        return false;
     }
 
     private void stopCurrentRecordingReplay() {
         if (replayDestinationSubscription != null) {
             CloseHelper.quietClose(replayDestinationSubscription);
+            replayDestinationSubscription = null;
+            log.info("{} | stopCurrentRecordingReplay. Resetting currentReplayStopPosition {}, lastImagePosition {}",
+                    this.name, currentReplayStopPosition, lastImagePosition);
+            currentReplayStopPosition = -1;
+            lastImagePosition = -1;
         }
-        replayDestinationSubscription = null;
-        log.info("{} | stopCurrentRecordingReplay. Resetting currentReplayStopPosition {}, lastImagePosition {}",
-                this.name, currentReplayStopPosition, lastImagePosition);
-        currentReplayStopPosition = -1;
-        lastImagePosition = -1;
     }
 
     private void connectToArchive() {
@@ -231,12 +258,12 @@ public class ArchiveConsumerAgent implements Agent {
                             TimeUnit.MILLISECONDS
                     );
 
-                    if (recordings().isEmpty() && replayStrategy == ReplayStrategy.REPLAY_OLD) {
-                        log.info("{} | No recordings found, stopping...", this.name);
-                        onClose();
-                        return;
+                    if (recordings().isEmpty()) {
+                        log.info("{} | No recordings found", this.name);
+                        if (onReplayFinish()) {
+                            return;
+                        }
                     }
-
                     currentState = State.POLLING_SUBSCRIPTION;
                 }
             }
@@ -264,14 +291,13 @@ public class ArchiveConsumerAgent implements Agent {
                 log.info("{} | Latest newLatestRecording recordingId {} finished", this.name, newLatestRecording.recordingId);
                 long stopPosition = newLatestRecording.stopPosition;
                 setCurrentReplayStopPosition(stopPosition);
-                if (lastImagePosition != -1 && lastImagePosition >= currentReplayStopPosition
-                        && replayStrategy == ReplayStrategy.REPLAY_OLD) {
-                    log.info("{} | Latest newLatestRecording already fully replayed, stopping consumer. " +
+                if (lastImagePosition != -1 && lastImagePosition >= currentReplayStopPosition) {
+                    log.info("{} | Latest newLatestRecording already fully replayed. " +
                                     "lastImagePosition {}. currentReplayStopPosition {}. {}", this.name,
-                            lastImagePosition, currentReplayStopPosition, recordings().getLast().recordingId);
-                    onClose();
+                            lastImagePosition, currentReplayStopPosition, recordings().get(recordings().size() - 1).recordingId);
+                    onReplayFinish();
                 }
-            } else if (prevCurrRecordingMeta.getStopPosition() < 0  && replayStrategy == ReplayStrategy.REPLAY_OLD) {
+            } else if (prevCurrRecordingMeta.stopPosition() < 0  && replayStrategy == ReplayStrategy.REPLAY_OLD) {
                 log.info("{} | Latest newLatestRecording not finished yet", this.name);
             }
         }
@@ -298,7 +324,7 @@ public class ArchiveConsumerAgent implements Agent {
                 log.debug("{} | Found startTimestamp={} recordingId={} startPos={} stopPos={} sessionId={} streamId={}", this.name,
                         Instant.ofEpochMilli(startTimestamp), recordingId, startPosition, stopPosition, sessionId, streamId1);
             } else if (recordings() == null || recordingList.size() > recordings().size() ||
-                    recordings().get(recordingList.size() - 1).stopPosition != recordingList.getLast().stopPosition) {
+                    recordings().get(recordingList.size() - 1).stopPosition != recordingList.get(recordingList.size() - 1).stopPosition) {
                 log.info("{} | Found startTimestamp={} recordingId={} startPos={} stopPos={} sessionId={} streamId={}", this.name,
                         Instant.ofEpochMilli(startTimestamp), recordingId, startPosition, stopPosition, sessionId, streamId1);
             }
@@ -347,7 +373,8 @@ public class ArchiveConsumerAgent implements Agent {
                     final Enumeration<InetAddress> interfaceAddresses = networkInterface.getInetAddresses();
                     while (interfaceAddresses.hasMoreElements()) {
                         final InetAddress addr = interfaceAddresses.nextElement();
-                        if (addr instanceof Inet4Address inet4Address) {
+                        if (addr instanceof Inet4Address) {
+                            Inet4Address inet4Address = (Inet4Address) addr;
                             log.info("{} | Detected IPv4 address: {}", this.name, inet4Address.getHostAddress());
                             return inet4Address.getHostAddress();
                         }
@@ -395,11 +422,5 @@ public class ArchiveConsumerAgent implements Agent {
         REPLAY_OLD_AND_SUBSCRIBE
     }
 
-    @Data
-    @AllArgsConstructor
-    private static class RecordingInfo {
-        final long recordingId;
-        final long startPosition;
-        final long stopPosition;
-    }
+    private record RecordingInfo (long recordingId, long startPosition, long stopPosition) {}
 }

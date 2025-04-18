@@ -30,4 +30,12 @@ public class OrdersAtPrice {
                 + "]";
     }
 
+    public void set(Side side, long price, Order order, OrdersAtPrice prev, OrdersAtPrice next) {
+        this.side = side;
+        this.price = price;
+        this.firstOrder = order;
+        this.prev = prev;
+        this.next = next;
+    }
+
 }

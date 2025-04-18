@@ -16,6 +16,7 @@ public class MarketDataConsumer implements Runnable {
 
     private final LFQueue<TradeEngineUpdate> tradeEngineUpdates;
     private final AeronConsumer aeronConsumer;
+    private final TradeEngineUpdate tradeEngineUpdate = new TradeEngineUpdate();
 
     public MarketDataConsumer(LFQueue<TradeEngineUpdate> tradeEngineUpdates) {
         String mdIp = Utils.env("AERON_IP", "224.0.1.1");
@@ -37,7 +38,8 @@ public class MarketDataConsumer implements Runnable {
         if (log.isDebugEnabled()) {
             log.debug("Received {}", marketUpdate);
         }
-        tradeEngineUpdates.offer(new TradeEngineUpdate(marketUpdate, null));
+        tradeEngineUpdate.set(marketUpdate);
+        tradeEngineUpdates.offer(tradeEngineUpdate);
     }
 
     public void shutdown() {

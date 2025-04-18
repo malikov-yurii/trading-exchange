@@ -22,6 +22,12 @@ public class OrderMessage {
 
     public OrderMessage(OrderMessageType type, long clientId, long tickerId, long clientOrderId,
                         long marketOrderId, Side side, long price, long execQty, long leavesQty) {
+        set(type, clientId, tickerId, clientOrderId,
+                marketOrderId, side, price, execQty, leavesQty);
+    }
+
+    public void set(OrderMessageType type, long clientId, long tickerId, long clientOrderId,
+                    long marketOrderId, Side side, long price, long execQty, long leavesQty) {
         this.type = type;
         this.clientId = clientId;
         this.tickerId = tickerId;
@@ -31,6 +37,32 @@ public class OrderMessage {
         this.price = price;
         this.execQty = execQty;
         this.leavesQty = leavesQty;
+    }
+
+    public void reset() {
+        seqNum = 0L;
+        type = OrderMessageType.INVALID;
+        clientId = 0L;
+        tickerId = 0L;
+        clientOrderId = 0L;
+        marketOrderId = 0L;
+        side = Side.INVALID;
+        price = 0L;
+        execQty = 0L;
+        leavesQty = 0L;
+    }
+
+    public static void copy(OrderMessage from, OrderMessage to) {
+        to.setSeqNum(from.getSeqNum());
+        to.setType(from.getType());
+        to.setClientId(from.getClientId());
+        to.setTickerId(from.getTickerId());
+        to.setClientOrderId(from.getClientOrderId());
+        to.setMarketOrderId(from.getMarketOrderId());
+        to.setSide(from.getSide());
+        to.setPrice(from.getPrice());
+        to.setExecQty(from.getExecQty());
+        to.setLeavesQty(from.getLeavesQty());
     }
 
     @Override
@@ -48,6 +80,5 @@ public class OrderMessage {
                 tickerId
         );
     }
-
 
 }

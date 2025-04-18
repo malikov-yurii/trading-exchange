@@ -107,9 +107,10 @@ public class AeronUtils {
                     final Enumeration<InetAddress> interfaceAddresses = networkInterface.getInetAddresses();
                     while (interfaceAddresses.hasMoreElements()) {
                         final InetAddress address = interfaceAddresses.nextElement();
-                        if (address instanceof Inet4Address inet4Address) {
-                            log.info("Detected IPv4 address: {}", inet4Address.getHostAddress());
-                            return inet4Address.getHostAddress();
+                        if (address instanceof Inet4Address) {
+                            String hostAddress = ((Inet4Address) address).getHostAddress();
+                            log.info("Detected IPv4 address: {}", hostAddress);
+                            return hostAddress;
                         }
                     }
                 }

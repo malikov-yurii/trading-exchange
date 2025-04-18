@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+docker compose down;
+
 docker compose up -d zookeeper archive-host;
 
 sleep 1;

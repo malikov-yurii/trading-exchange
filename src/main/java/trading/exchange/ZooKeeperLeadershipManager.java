@@ -31,9 +31,9 @@ public class ZooKeeperLeadershipManager implements LeadershipManager {
         String host = Utils.env("ZOO_HOST", "zookeeper");
         String port = Utils.env("ZOO_PORT_NUMBER", "2181");
         String zooKeeperCluster = host + ":" + port;
-        int zooSessionTimeoutMs = 3_000;
-        int zooConnectionTimeoutMs = 3_000;
-        int zooExponentialBackoffRetryBaseSleepMs = 1_000;
+        int zooSessionTimeoutMs = 5500;
+        int zooConnectionTimeoutMs = 5500;
+        int zooExponentialBackoffRetryBaseSleepMs = 5500;
         log.info("init. curatorFramework. zooKeeperCluster [{}], sessionTimeoutMs [{}], connectionTimeoutMs [{}], " +
                         "exponentialBackoffRetryBaseSleepMs [{}]", zooKeeperCluster, zooSessionTimeoutMs,
                 zooConnectionTimeoutMs, zooExponentialBackoffRetryBaseSleepMs);

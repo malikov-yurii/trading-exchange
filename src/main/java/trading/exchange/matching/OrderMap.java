@@ -22,7 +22,7 @@ public class OrderMap {
     }
 
     private static void logInvalid(long clOrdId) {
-        log.error("Invalid clOrdId: {}. ME_MAX_NUM_CLIENTS: {}", clOrdId, Constants.ME_MAX_ORDER_IDS);
+        log.error("Invalid clOrdId: {}. ME_MAX_ORDER_IDS: {}", clOrdId, Constants.ME_MAX_ORDER_IDS);
     }
 
     public void put(Order order) {

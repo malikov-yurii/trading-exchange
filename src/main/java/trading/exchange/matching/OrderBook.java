@@ -1,5 +1,6 @@
 package trading.exchange.matching;
 
+import org.agrona.concurrent.OneToOneConcurrentArrayQueue;
 import trading.common.Constants;
 import trading.api.MarketUpdate;
 import trading.api.MarketUpdateType;
@@ -8,6 +9,7 @@ import trading.api.OrderMessage;
 import trading.api.Side;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import trading.common.ObjectPool;
 
 import static trading.common.Constants.PRIORITY_INVALID;
 
@@ -23,9 +25,10 @@ public final class OrderBook {
 
     private final ClientOrderMap clientOrdersMap;
     private final OrdersAtPriceMap ordersAtPriceMap;
+    private final ObjectPool<Order> orderPool = new ObjectPool<>(130_000, Order::new);
 
-    private OrderMessage orderMessage = new OrderMessage();
-    private MarketUpdate marketUpdate = new MarketUpdate();
+    private final OrderMessage orderMessage = new OrderMessage();
+    private final MarketUpdate marketUpdate = new MarketUpdate();
 
     private long nextMarketOrderId = 1;
 
@@ -46,17 +49,19 @@ public final class OrderBook {
     public void add(long clientId, long clientOrderId, long tickerId, Side side, long price, long qty) {
         long marketOrderId = generateNewMarketOrderId();
 
-        orderMessage = new OrderMessage(OrderMessageType.ACCEPTED, clientId, tickerId, clientOrderId, marketOrderId, side, price, 0, qty);
+        orderMessage.set(OrderMessageType.ACCEPTED, clientId, tickerId, clientOrderId, marketOrderId, side, price, 0, qty);
         matchingEngine.sendClientResponse(orderMessage);
 
         long leavesQty = matchNewOrder(clientId, clientOrderId, tickerId, side, price, qty, marketOrderId);
 
         if (leavesQty > 0) {
             long priority = getNextPriority(price);
-            Order order = new Order(tickerId, clientId, clientOrderId, marketOrderId, side, price, leavesQty, priority, null, null);
+            Order order = orderPool.acquire();
+//            Order order = new Order();
+            order.set(tickerId, clientId, clientOrderId, marketOrderId, side, price, leavesQty, priority, null, null);
             addOrder(order);
 
-            marketUpdate = new MarketUpdate(MarketUpdateType.ADD, marketOrderId, tickerId, side, price, leavesQty, priority);
+            marketUpdate.set(MarketUpdateType.ADD, marketOrderId, tickerId, side, price, leavesQty, priority, 0);
             matchingEngine.sendMarketUpdate(marketUpdate);
         }
     }
@@ -65,13 +70,14 @@ public final class OrderBook {
         Order order = clientOrdersMap.get(clientId, clientOrderId);
 
         if (order == null) {
-            orderMessage = new OrderMessage(OrderMessageType.CANCEL_REJECTED, clientId, tickerId, clientOrderId,
-                    Constants.ORDER_ID_INVALID, Side.INVALID, Constants.PRICE_INVALID, Constants.QTY_INVALID, Constants.QTY_INVALID);
+            orderMessage.set(OrderMessageType.CANCEL_REJECTED, clientId, tickerId, clientOrderId,
+                    Constants.ORDER_ID_INVALID, Side.INVALID, Constants.PRICE_INVALID,
+                    Constants.QTY_INVALID, Constants.QTY_INVALID);
         } else {
-            orderMessage = new OrderMessage(OrderMessageType.CANCELED, clientId, tickerId, clientOrderId,
+            orderMessage.set(OrderMessageType.CANCELED, clientId, tickerId, clientOrderId,
                     order.getMarketOrderId(), order.getSide(), order.getPrice(), Constants.QTY_INVALID, order.getQty());
-            marketUpdate = new MarketUpdate(MarketUpdateType.CANCEL, order.getMarketOrderId(), tickerId,
-                    order.getSide(), order.getPrice(), 0, order.getPriority());
+            marketUpdate.set(MarketUpdateType.CANCEL, order.getMarketOrderId(), tickerId,
+                    order.getSide(), order.getPrice(), 0, order.getPriority(), 0);
 
             removeOrder(order);
             matchingEngine.sendMarketUpdate(marketUpdate);
@@ -112,28 +118,28 @@ public final class OrderBook {
         leavesQty -= fillQty;
         passiveOrder.setQty(orderQty - fillQty);
 
-        orderMessage = new OrderMessage(OrderMessageType.FILLED, clientId, tickerId, clientOrderId,
+        orderMessage.set(OrderMessageType.FILLED, clientId, tickerId, clientOrderId,
                 newMarketOrderId, side, passiveOrder.getPrice(), fillQty, leavesQty);
         matchingEngine.sendClientResponse(orderMessage); // Fill for the aggressive order
 
-        orderMessage = new OrderMessage(OrderMessageType.FILLED, passiveOrder.getClientId(), tickerId,
+        orderMessage.set(OrderMessageType.FILLED, passiveOrder.getClientId(), tickerId,
                 passiveOrder.getClientOrderId(), passiveOrder.getMarketOrderId(), passiveOrder.getSide(),
                 passiveOrder.getPrice(), fillQty, passiveOrder.getQty());
         matchingEngine.sendClientResponse(orderMessage); // Fill for the passive order
 
-        marketUpdate = new MarketUpdate(MarketUpdateType.TRADE, Constants.ORDER_ID_INVALID, tickerId, side,
-                passiveOrder.getPrice(), fillQty, PRIORITY_INVALID);
+        marketUpdate.set(MarketUpdateType.TRADE, Constants.ORDER_ID_INVALID, tickerId, side,
+                passiveOrder.getPrice(), fillQty, PRIORITY_INVALID, 0);
         matchingEngine.sendMarketUpdate(marketUpdate);
 
         if (passiveOrder.getQty() == 0) { // fully matched
-            marketUpdate = new MarketUpdate(MarketUpdateType.CANCEL, passiveOrder.getMarketOrderId(), tickerId,
-                    passiveOrder.getSide(), passiveOrder.getPrice(), orderQty, PRIORITY_INVALID);
+            marketUpdate.set(MarketUpdateType.CANCEL, passiveOrder.getMarketOrderId(), tickerId,
+                    passiveOrder.getSide(), passiveOrder.getPrice(), orderQty, PRIORITY_INVALID, 0);
             matchingEngine.sendMarketUpdate(marketUpdate);
 
             removeOrder(passiveOrder);
         } else {
-            marketUpdate = new MarketUpdate(MarketUpdateType.MODIFY, passiveOrder.getMarketOrderId(), tickerId,
-                    passiveOrder.getSide(), passiveOrder.getPrice(), passiveOrder.getQty(), passiveOrder.getPriority());
+            marketUpdate.set(MarketUpdateType.MODIFY, passiveOrder.getMarketOrderId(), tickerId,
+                    passiveOrder.getSide(), passiveOrder.getPrice(), passiveOrder.getQty(), passiveOrder.getPriority(), 0);
             matchingEngine.sendMarketUpdate(marketUpdate);
         }
         return leavesQty;
@@ -145,8 +151,8 @@ public final class OrderBook {
             // Create new
             order.setNextOrder(order);
             order.setPrevOrder(order);
-            OrdersAtPrice newNode = new OrdersAtPrice(order.getSide(), order.getPrice(), order, null, null);
-            ordersAtPriceMap.put(newNode);
+
+            OrdersAtPrice newNode = ordersAtPriceMap.createNew(order.getSide(), order.getPrice(), order, null, null);
 
             if (order.getSide() == Side.BUY) {
                 if (bidsByPrice == null) {
@@ -202,6 +208,7 @@ public final class OrderBook {
         }
 
         clientOrdersMap.remove(order);
+        orderPool.release(order);
     }
 
     private void removeOrdersAtPrice(Side side, long price) {

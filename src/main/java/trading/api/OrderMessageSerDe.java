@@ -4,6 +4,17 @@ import io.netty.buffer.ByteBuf;
 import org.agrona.ExpandableDirectByteBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import quickfix.FieldNotFound;
+import quickfix.Message;
+import quickfix.field.ClOrdID;
+import quickfix.field.CumQty;
+import quickfix.field.ExecType;
+import quickfix.field.LeavesQty;
+import quickfix.field.MsgType;
+import quickfix.field.OrderID;
+import quickfix.field.Symbol;
+
+import java.time.LocalDateTime;
 
 public class OrderMessageSerDe {
 
@@ -119,4 +130,98 @@ public class OrderMessageSerDe {
         }
         return sides[ord];
     }
+
+    public static void toFIXMessage(OrderMessage orderMessage, Message msg) throws Exception {
+        msg.clear();
+
+        msg.getHeader().setChar(35, '8');
+//        msg.setChar(35, '8');
+
+        msg.setString(37, Long.toString(orderMessage.getMarketOrderId())); // OrderID
+        msg.setString(17, Long.toString(orderMessage.getSeqNum()));        // ExecID
+
+        char execType;
+        char ordStatus;
+
+        switch (orderMessage.getType()) {
+            case ACCEPTED -> {
+                execType = '0'; ordStatus = '0';
+            }
+            case CANCELED -> {
+                execType = '4'; ordStatus = '4';
+            }
+            case FILLED -> {
+                execType = '2'; ordStatus = '2';
+            }
+            case CANCEL_REJECTED -> {
+                execType = '8'; ordStatus = '8';
+            }
+            default -> {
+                execType = '8'; ordStatus = '8';
+            }
+        }
+
+        msg.setChar(150, execType); // ExecType
+        msg.setChar(39, ordStatus); // OrdStatus
+
+        msg.setString(11, Long.toString(orderMessage.getClientOrderId())); // ClOrdID
+        msg.setString(55, Long.toString(orderMessage.getTickerId()));      // Symbol
+        msg.setChar(54, orderMessage.getSide() == Side.BUY ? '1' : '2');   // Side
+
+        msg.setDouble(151, orderMessage.getLeavesQty());                   // LeavesQty
+        msg.setDouble(14, orderMessage.getExecQty());                      // CumQty
+        msg.setDouble(6, orderMessage.getExecQty() > 0 ? orderMessage.getPrice() : 0); // AvgPx
+
+        msg.setUtcTimeStamp(60, LocalDateTime.now(), true);              // TransactTime
+        msg.setChar(20, '0');                                              // ExecTransType
+        msg.setChar(21, '1');                                              // HandlInst
+
+        // Custom tags
+        msg.setString(20001, Long.toString(orderMessage.getClientId()));  // clientId
+        msg.setString(20002, Long.toString(orderMessage.getSeqNum()));    // seqNum
+    }
+
+    public static void toOrderMessage(Message message, OrderMessage orderMessage) throws FieldNotFound {
+        // Ensure it's an ExecutionReport
+        if (!MsgType.EXECUTION_REPORT.equals(message.getHeader().getString(MsgType.FIELD))) {
+            throw new IllegalArgumentException("Expected ExecutionReport (MsgType=8)");
+        }
+
+        ExecType execType = new ExecType(message.getChar(ExecType.FIELD));
+        OrderMessageType type;
+
+        switch (execType.getValue()) {
+            case ExecType.NEW:
+                type = OrderMessageType.ACCEPTED;
+                break;
+            case ExecType.FILL:
+            case ExecType.PARTIAL_FILL:
+                type = OrderMessageType.FILLED;
+                break;
+            case ExecType.CANCELED:
+                type = OrderMessageType.CANCELED;
+                break;
+            case ExecType.REJECTED:
+                type = OrderMessageType.CANCEL_REJECTED;
+                break;
+            default:
+                type = OrderMessageType.INVALID;
+        }
+
+        orderMessage.setType(type);
+        orderMessage.setClientOrderId(Long.parseLong(message.getString(ClOrdID.FIELD)));
+        orderMessage.setMarketOrderId(message.isSetField(OrderID.FIELD)
+                ? Long.parseLong(message.getString(OrderID.FIELD)) : 0);
+        orderMessage.setClientId(1); // Replace with custom field extraction if needed
+        orderMessage.setTickerId(Long.parseLong(message.getString(Symbol.FIELD)));
+
+        char sideChar = message.getChar(quickfix.field.Side.FIELD);
+        orderMessage.setSide(sideChar == quickfix.field.Side.BUY ? Side.BUY : Side.SELL);
+
+        orderMessage.setPrice(message.isSetField(quickfix.field.Price.FIELD)
+                ? (long) message.getDouble(quickfix.field.Price.FIELD) : 0);
+        orderMessage.setExecQty((long) message.getDouble(CumQty.FIELD));
+        orderMessage.setLeavesQty((long) message.getDouble(LeavesQty.FIELD));
+    }
+
 }

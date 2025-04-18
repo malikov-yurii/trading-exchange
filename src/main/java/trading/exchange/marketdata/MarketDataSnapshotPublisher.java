@@ -1,6 +1,7 @@
 package trading.exchange.marketdata;
 
 import org.agrona.ExpandableDirectByteBuffer;
+import org.agrona.concurrent.OneToOneConcurrentArrayQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trading.api.MarketUpdate;
@@ -8,9 +9,11 @@ import trading.api.MarketUpdateSerDe;
 import trading.api.MarketUpdateType;
 import aeron.AeronPublisher;
 import trading.common.LFQueue;
+import trading.common.ObjectPool;
 import trading.common.Utils;
 import trading.exchange.AppState;
 import trading.exchange.LeadershipManager;
+import trading.exchange.matching.Order;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -37,6 +40,11 @@ public class MarketDataSnapshotPublisher {
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(
             r -> new Thread(r, "md-snap-publisher")
     );
+
+    private final ObjectPool<MarketUpdate> marketUpdatePool =
+            new ObjectPool<>(30_000, MarketUpdate::new);
+
+    private final ExpandableDirectByteBuffer buffer = new ExpandableDirectByteBuffer(128);
 
     private volatile boolean running = true;
 
@@ -70,9 +78,6 @@ public class MarketDataSnapshotPublisher {
                 channel, streamId, snapshotInterval);
     }
 
-    /**
-     * Called upon new MarketUpdate from incremental feed queue.
-     */
     private void onIncrementalUpdate(MarketUpdate incrementalUpdate) {
         if (incrementalUpdate == null) {
             log.warn("Null MarketUpdate received");
@@ -95,7 +100,9 @@ public class MarketDataSnapshotPublisher {
                 if (ordersForTicker.containsKey(orderId)) {
                     log.error("ADD for existing orderId={} tickerId={}", orderId, tickerId);
                 } else {
-                    MarketUpdate newOrder = copyOf(incrementalUpdate);
+                    MarketUpdate newOrder = marketUpdatePool.acquire();
+//                    MarketUpdate newOrder = new MarketUpdate();
+                    MarketUpdate.copy(incrementalUpdate, newOrder);
                     ordersForTicker.put(orderId, newOrder);
                 }
                 break;
@@ -114,6 +121,8 @@ public class MarketDataSnapshotPublisher {
                 MarketUpdate existing = ordersForTicker.remove(orderId);
                 if (existing == null) {
                     log.error("CANCEL for non-existing orderId={} tickerId={}", orderId, tickerId);
+                } else {
+                    marketUpdatePool.release(existing);
                 }
                 break;
             }
@@ -144,6 +153,7 @@ public class MarketDataSnapshotPublisher {
 
         // 1) SNAPSHOT_START
         MarketUpdate startMsg = new MarketUpdate();
+//        MarketUpdate startMsg = marketUpdatePool.acquire(); //TODO here and other places
         startMsg.setSeqNum(snapshotSeq++);
         startMsg.setType(MarketUpdateType.SNAPSHOT_START);
         startMsg.setOrderId(incSeqUsed);
@@ -152,6 +162,7 @@ public class MarketDataSnapshotPublisher {
         // 2) For each ticker: send CLEAR, then each order
         for (int t = 0; t < tickerOrders.size(); t++) {
             // CLEAR
+//            MarketUpdate clearMsg = marketUpdatePool.acquire();
             MarketUpdate clearMsg = new MarketUpdate();
             clearMsg.setSeqNum(snapshotSeq++);
             clearMsg.setType(MarketUpdateType.CLEAR);
@@ -162,13 +173,16 @@ public class MarketDataSnapshotPublisher {
             Map<Long, MarketUpdate> ordersMap = tickerOrders.get(t);
             for (MarketUpdate order : ordersMap.values()) {
                 // We copy so we can rewrite seqNum in snapshot
-                MarketUpdate orderCopy = copyOf(order);
+//                MarketUpdate orderCopy = marketUpdatePool.acquire();
+                MarketUpdate orderCopy = new MarketUpdate();
+                MarketUpdate.copy(order, orderCopy);
                 orderCopy.setSeqNum(snapshotSeq++);
                 publish(orderCopy);
             }
         }
 
         // 3) SNAPSHOT_END
+//        MarketUpdate endMsg = marketUpdatePool.acquire();
         MarketUpdate endMsg = new MarketUpdate();
         endMsg.setSeqNum(snapshotSeq++);
         endMsg.setType(MarketUpdateType.SNAPSHOT_END);
@@ -190,29 +204,12 @@ public class MarketDataSnapshotPublisher {
             return;
         }
 
-        ExpandableDirectByteBuffer buffer = new ExpandableDirectByteBuffer(128);
         int offset = 0;
         int length = MarketUpdateSerDe.serializeMarketUpdate(marketUpdate, buffer, offset);
 
         aeronPublisher.publish(buffer, offset, length);
-
         log.info("Published {}", marketUpdate);
-    }
-
-    /**
-     * Make a copy of an existing MarketUpdate, since we might want to rewrite seqNum for snapshot
-     */
-    private MarketUpdate copyOf(MarketUpdate src) {
-        MarketUpdate copy = new MarketUpdate();
-        copy.setSeqNum(src.getSeqNum());
-        copy.setType(src.getType());
-        copy.setOrderId(src.getOrderId());
-        copy.setTickerId(src.getTickerId());
-        copy.setSide(src.getSide());
-        copy.setPrice(src.getPrice());
-        copy.setQty(src.getQty());
-        copy.setPriority(src.getPriority());
-        return copy;
+        marketUpdatePool.release(marketUpdate);
     }
 
     public void close() {

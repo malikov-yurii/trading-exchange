@@ -76,11 +76,15 @@ public class TradeEngine {
 
     public void onTradeEngineUpdate(TradeEngineUpdate tradeEngineUpdate) {
         try {
-            log.info("onTradeEngineUpdate. {}", tradeEngineUpdate);
-            if (tradeEngineUpdate.getMarketUpdate() != null) {
+            if (log.isDebugEnabled()) {
+                log.debug("onTradeEngineUpdate. {}", tradeEngineUpdate);
+            }
+            if (tradeEngineUpdate.getType() == TradeEngineUpdate.Type.MARKET_UPDATE) {
                 onMarketUpdate(tradeEngineUpdate.getMarketUpdate());
-            } else if (tradeEngineUpdate.getOrderMessage() != null) {
+            } else if (tradeEngineUpdate.getType() == TradeEngineUpdate.Type.ORDER_MESSAGE) {
                 onOrderMessage(tradeEngineUpdate.getOrderMessage());
+            } else {
+                log.error("Unknown TradeEngineUpdate type: {}", tradeEngineUpdate.getType());
             }
         } catch (Throwable e) {
             log.error("Error processing TradeEngineUpdate: {}", tradeEngineUpdate, e);
@@ -103,7 +107,7 @@ public class TradeEngine {
 
     public void onOrderBookUpdate(MarketOrderBook orderBook, long price, Side side) {
         try {
-            log.info("onOrderBookUpdate. tickerId: {}, {} @{}", orderBook.getTickerId(), side, price);
+//            log.info("onOrderBookUpdate. tickerId: {}, {} @{}", orderBook.getTickerId(), side, price);
             positionManager.updateBBO(orderBook.getTickerId(), orderBook.getBBO());
             featureEngine.onOrderBookUpdate(orderBook, price, side);
             algo.onOrderBookUpdate(orderBook.getTickerId(), price, side, orderBook);

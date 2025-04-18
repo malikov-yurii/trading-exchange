@@ -21,6 +21,7 @@ public class OrderManager {
     private final RiskManager riskManager;
     private final TickerOrderSideMap tickerOrderSideMap;
     private final AtomicLong nextOrderId;
+    private final OrderRequest orderRequest = new OrderRequest();
 
 
     public OrderManager(TradeEngine tradeEngine, RiskManager riskManager) {
@@ -93,7 +94,6 @@ public class OrderManager {
 
     private void newOrder(Order order, long tickerId, long price, Side side, long qty) {
         log.info("newOrder. tickerId: {}, {} {}@{}", tickerId, side, qty, price);
-        OrderRequest orderRequest = new OrderRequest();
         orderRequest.setType(OrderRequestType.NEW);
         orderRequest.setClientId(tradeEngine.getClientId());
         orderRequest.setTickerId(tickerId);
@@ -113,7 +113,6 @@ public class OrderManager {
     }
 
     private void cancelOrder(Order order) {
-        OrderRequest orderRequest = new OrderRequest();
         orderRequest.setType(OrderRequestType.CANCEL);
         orderRequest.setClientId(tradeEngine.getClientId());
         orderRequest.setTickerId(order.getTickerId());

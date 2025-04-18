@@ -1,5 +1,6 @@
 package trading.exchange.orderserver;
 
+import aeron.AeronPublisher;
 import aeron.ArchiveConsumerAgent;
 import io.aeron.logbuffer.FragmentHandler;
 import lombok.Getter;
@@ -13,9 +14,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trading.api.OrderRequest;
 import trading.api.OrderRequestSerDe;
-import aeron.AeronPublisher;
 import trading.common.LFQueue;
 import trading.common.Utils;
+import trading.exchange.AppState;
 
 public class ReplicationConsumer implements Runnable {
     private static final Logger log = LoggerFactory.getLogger(ReplicationConsumer.class);
@@ -24,13 +25,16 @@ public class ReplicationConsumer implements Runnable {
 
     private final AeronPublisher replicationAckPublisher;
     private final MutableDirectBuffer seqNumBuffer;
+
     private AgentRunner runner;
+    private final AppState appState;
 
     @Getter
     private volatile long lastSeqNum = 0;
 
-    public ReplicationConsumer(LFQueue<OrderRequest> clientRequests) {
+    public ReplicationConsumer(LFQueue<OrderRequest> clientRequests, AppState appState) {
         this.clientRequests = clientRequests;
+        this.appState = appState;
 
         String aeronIp = Utils.env("AERON_IP", "224.0.1.1");
 
@@ -70,10 +74,12 @@ public class ReplicationConsumer implements Runnable {
         FragmentHandler fragmentHandler = (buffer, offset, length, header) -> processReplicationEvent(buffer, offset, length);
         int streamId = Integer.parseInt(Utils.env("REPLICATION_STREAM", "3001"));
         ArchiveConsumerAgent.ReplayStrategy replayStrategy = ArchiveConsumerAgent.ReplayStrategy.REPLAY_OLD_AND_SUBSCRIBE;
-        final ArchiveConsumerAgent hostAgent =
+        final ArchiveConsumerAgent archiveConsumer =
                 new ArchiveConsumerAgent(streamId, fragmentHandler, replayStrategy, "REPLICATION");
 
-        runner = new AgentRunner(new SleepingMillisIdleStrategy(), ArchiveConsumerAgent::errorHandler, null, hostAgent);
+        archiveConsumer.onReplayOldFinish(appState::setRecovered);
+
+        runner = new AgentRunner(new SleepingMillisIdleStrategy(), ArchiveConsumerAgent::errorHandler, null, archiveConsumer);
 
         AgentRunner.startOnThread(runner);
 

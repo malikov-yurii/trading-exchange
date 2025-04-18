@@ -3,103 +3,159 @@ package trading.exchange.orderserver;
 import aeron.AeronConsumer;
 import aeron.ArchivePublisher;
 import io.aeron.logbuffer.FragmentHandler;
-import org.agrona.DirectBuffer;
 import org.agrona.ExpandableDirectByteBuffer;
+import org.agrona.concurrent.OneToOneConcurrentArrayQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trading.api.OrderRequest;
 import trading.api.OrderRequestSerDe;
 import trading.common.LFQueue;
 import trading.common.Utils;
+import trading.exchange.AppState;
 
 import java.util.concurrent.atomic.AtomicLong;
 
-public class RequestSequencer implements Runnable {
+/**
+ * Single‑producer  (process thread)
+ * Single‑consumer  (ACK handler thread)
+ */
+public final class RequestSequencer implements Runnable {
+    /* ---------- config --------------------------------------------------- */
     private static final Logger log = LoggerFactory.getLogger(RequestSequencer.class);
 
-    private final LFQueue<OrderRequest> requestQueue;
-    private final AtomicLong nextSeqNum;
-    private final ArchivePublisher archivePublisher;
-    private final AeronConsumer replicationAckConsumer;
+    private static final int   POOL_CAPACITY   = 1 << 22;        // 4M
 
-    private final OrderRequest[] ringBuffer = new OrderRequest[1 << 20];
+    /* ---------- dependencies --------------------------------------------- */
+    private final LFQueue<OrderRequest> clientRequests;
+    private final ArchivePublisher      replicationPublisher;
+    private final AeronConsumer         replicationAckConsumer;
 
-    public RequestSequencer(LFQueue<OrderRequest> clientRequests, long seqNum) {
-        nextSeqNum = new AtomicLong(seqNum + 1);
-        this.requestQueue = clientRequests;
+    /* ---------- concurrent structures ------------------------------------ */
+    /** free object pool     (consumer → producer) */
+    private final OneToOneConcurrentArrayQueue<OrderRequest> freePool =
+            new OneToOneConcurrentArrayQueue<>(POOL_CAPACITY);
 
-        String aeronIp = Utils.env("AERON_IP", "224.0.1.1");
+    /** in‑flight tracking   (producer → consumer) */
+    private final OneToOneConcurrentArrayQueue<OrderRequest> inFlight =
+            new OneToOneConcurrentArrayQueue<>(POOL_CAPACITY);
 
-        int replicationStream = Integer.parseInt(Utils.env("REPLICATION_STREAM", "3001"));
-        this.archivePublisher = new ArchivePublisher(replicationStream, "REPLICATION", false);
+    /* ---------- bookkeeping ---------------------------------------------- */
+    private final AtomicLong nextSeq;
+//    private final Thread     ownerThread;        // for misuse checks
 
-        FragmentHandler fragmentHandler = (buffer, offset, length, header) -> processReplicationAck(buffer, offset, length);
-        replicationAckConsumer = new AeronConsumer(aeronIp,
-                Utils.env("REPLICATION_ACK_PORT", "40552"),
-                Integer.parseInt(Utils.env("REPLICATION_ACK_STREAM", "3002")),
-                fragmentHandler, "REPLICATION_ACK");
+    /* ---------- helpers --------------------------------------------------- */
+    private static final ThreadLocal<ExpandableDirectByteBuffer> BUF =
+            ThreadLocal.withInitial(() -> new ExpandableDirectByteBuffer(128));
+
+    /* ===================================================================== */
+    public RequestSequencer(LFQueue<OrderRequest> clientRequests,
+                            long                     lastSeqNum,
+                            AppState                 appState) {
+
+        this.clientRequests = clientRequests;
+        this.nextSeq        = new AtomicLong(lastSeqNum + 1);
+//        this.ownerThread    = Thread.currentThread();
+
+        // pre‑allocate objects into the free pool
+        for (int i = 0; i < POOL_CAPACITY; i++) {
+            freePool.offer(new OrderRequest());
+        }
+
+        // ------------- replication publisher ------------------------------
+        final int replicationStream = Integer.parseInt(Utils.env("REPLICATION_STREAM","3001"));
+        this.replicationPublisher   = new ArchivePublisher(replicationStream, "REPLICATION", false);
+
+        // ------------- replication ACK consumer ---------------------------
+        String aeronIp   = Utils.env("AERON_IP", "224.0.1.1");
+        int    ackPort   = Integer.parseInt(Utils.env("REPLICATION_ACK_PORT",   "40552"));
+        int    ackStream = Integer.parseInt(Utils.env("REPLICATION_ACK_STREAM", "3002"));
+
+        FragmentHandler fh = (buf, off, len, header) -> onAck(buf.getLong(off));
+
+        this.replicationAckConsumer =
+                new AeronConsumer(aeronIp, String.valueOf(ackPort), ackStream, fh, "REPLICATION_ACK");
+
+        log.info("RequestSequencer initialised: pool={}, stream={}", POOL_CAPACITY, replicationStream);
     }
 
-    public void process(OrderRequest orderRequest) {
-        long seq = nextSeqNum.getAndIncrement();
-        orderRequest.setSeqNum(seq);
-        log.info("Processing {}", orderRequest);
+    /* ===================================================================== */
+    /** Called only by the *producer* thread. */
+    public void process(final OrderRequest src) {
+//        assertOwner();
 
-        enqueueOrderReq(orderRequest);
+        OrderRequest dst = freePool.poll();
+        if (dst == null){
+            dst = new OrderRequest();        // extremely rare
+            log.error("freePool. EMPTY while processing {}", src);
+        }
 
-        ExpandableDirectByteBuffer buffer = new ExpandableDirectByteBuffer(128);
-        int offset = 0;
-        int length = OrderRequestSerDe.serialize(orderRequest, buffer, offset);
-        archivePublisher.publish(buffer, offset, length);
+        OrderRequest.copy(src, dst);
+        dst.setSeqNum(nextSeq.getAndIncrement());
+
+        /* replicate ------------------------------------------------------- */
+        var buf = BUF.get();
+        int len = OrderRequestSerDe.serialize(dst, buf, 0);
+        replicationPublisher.publish(buf, 0, len);
+
+        /* track in‑flight -------------------------------------------------- */
+        while (!inFlight.offer(dst)) {
+            Thread.onSpinWait();
+        }
     }
 
-    private void enqueueOrderReq(OrderRequest orderRequest) {
-        int ind = (int) (orderRequest.getSeqNum() % ringBuffer.length);
-        while (ringBuffer[ind] != null) {
-            final int millis = 10;
-            log.error("RingBuffer is full. Sleeping {}ms", millis);
-            try {
-
-                Thread.sleep(millis);
-            } catch (InterruptedException e) {
-                // Ignore
+    /* ---------- ACK path (single consumer thread) ------------------------ */
+    private void onAck(final long seq) {
+        for (;;) {
+            OrderRequest req = inFlight.poll();
+            if (req == null) {                       // no message yet
+                log.warn("ACK {} with empty in‑flight queue", seq);
+                return;
             }
+
+            long msgSeq = req.getSeqNum();
+            if (msgSeq == seq) {                     // expected
+                clientRequests.offer(req);
+                recycle(req);
+                return;
+            }
+
+            if (msgSeq < seq) {                      // stale, already re‑sent
+                log.debug("Ack dup: {}", msgSeq);
+                recycle(req);
+                continue;
+            }
+
+            /* msgSeq > seq  → missing message (out‑of‑order ACK) */
+            log.error("ACK out of order: ack={} head={}", seq, msgSeq);
+            inFlight.offer(req);                     // push back & give up
             return;
         }
-        ringBuffer[ind] = orderRequest;
     }
 
-    private void processReplicationAck(DirectBuffer buffer, int offset, int length) {
-        long ackedReqSeqNum = buffer.getLong(offset);
-
-        OrderRequest orderRequest = dequeueOrderReq(ackedReqSeqNum);
-
-        if (orderRequest == null) {
-            log.info("Received Dup Ack for msgSeqNum={}", ackedReqSeqNum);
-            // Dup Ack
-            return;
+    /* ---------- pool helpers -------------------------------------------- */
+    private void recycle(final OrderRequest r) {
+        r.reset();                                   // clear fields incl. seq
+        if (!freePool.offer(r)) {
+            /* shouldn't happen, but drop if pool is unexpectedly full      */
         }
-        log.info("Received Ack: {} {}", ackedReqSeqNum, orderRequest);
-        requestQueue.offer(orderRequest);
     }
 
-    private OrderRequest dequeueOrderReq(long ackedReqSeqNum) {
-        int ind = (int) (ackedReqSeqNum % ringBuffer.length);
-        OrderRequest orderRequest = ringBuffer[ind];
-        ringBuffer[ind] = null;
-        return orderRequest;
-    }
-
+    /* ---------- life‑cycle ---------------------------------------------- */
     public void shutdown() {
-        archivePublisher.close();
+        replicationPublisher.close();
         replicationAckConsumer.stop();
     }
 
-    @Override
-    public void run() {
+    @Override public void run() {
         log.info("RequestSequencer starting");
-        replicationAckConsumer.run();
-        log.info("RequestSequencer shutting down");
+        replicationAckConsumer.run();               // blocks
+        log.info("RequestSequencer stopped");
     }
 
+//    /* ---------- misc ----------------------------------------------------- */
+//    private void assertOwner() {
+//        if (Thread.currentThread() != ownerThread) {
+//            throw new IllegalStateException("process() called by multiple threads");
+//        }
+//    }
 }

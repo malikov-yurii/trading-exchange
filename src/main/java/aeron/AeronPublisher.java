@@ -35,9 +35,9 @@ public class AeronPublisher {
                     int sleepMs = attempt * 100;
                     attempt++;
                     if (result == Publication.BACK_PRESSURED) {
-                        log.error("[{}] Publication back pressure or not connected. Sleeping {}ms", name, sleepMs);
+                        log.error("[{}] Publication back pressure. Result: {}. Sleeping {}ms", name, result, sleepMs);
                     } else {
-                        log.error("[{}] Publication not connected. Sleeping {}ms", name, sleepMs);
+                        log.error("[{}] Publication failure. Result: {}. Sleeping {}ms", name, result, sleepMs);
                     }
                     AeronUtils.sleep(sleepMs);
                 } else {

@@ -61,7 +61,7 @@ public class MarketOrderBook {
                     // TODO Clear the order book and deallocate MarketOrdersAtPrice and MarketOrder objects.
                     break;
                 default:
-                    log.error("onMarketUpdate. Invalid MarketUpdateType: {}", marketUpdate.getType());
+                    log.error("onMarketUpdate. Invalid MarketUpdateType: {}", marketUpdate);
             }
             boolean bidUpdated = bidsByPrice != null && marketUpdate.getSide() == Side.BUY
                     && marketUpdate.getPrice() >= bidsByPrice.getPrice();

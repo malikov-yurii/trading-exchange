@@ -7,43 +7,47 @@ import trading.api.OrderMessage;
 import trading.api.OrderRequest;
 import trading.api.OrderRequestType;
 import trading.api.Side;
-import trading.common.Utils;
 import trading.participant.ordergateway.OrderGatewayClient;
 
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static trading.common.Utils.env;
+
 public class RandomOrderSender implements TradingAlgo {
     private static final Logger log = LoggerFactory.getLogger(RandomOrderSender.class);
+    public final int SLEEP_ORDER_ID;
 
     private final TradeEngine tradeEngine;
-    private final OrderGatewayClient orderGatewayClient;
+//    private final OrderGatewayClient orderGatewayClient;
 
     private volatile boolean isRunning;
     private final AtomicLong nextOrderId = new AtomicLong();
     private final Random random = new Random();
     private int clientNum;
     private int tickerNum;
+    private int sleepTime;
 
     public RandomOrderSender(TradeEngine tradeEngine, OrderGatewayClient orderGatewayClient) {
         log.info("TradingAlgo. Init.");
         this.tradeEngine = tradeEngine;
-        this.orderGatewayClient = orderGatewayClient;
+        this.SLEEP_ORDER_ID = Integer.valueOf(env("SLEEP_ORDER_ID", "400000"));
+//        this.orderGatewayClient = orderGatewayClient;
     }
 
     @Override
     public void onOrderBookUpdate(long tickerId, long price, Side side, MarketOrderBook marketOrderBook) {
-        log.info("onOrderBookUpdate. tickerId: {}, price: {}, side: {}", tickerId, price, side);
+//        log.info("onOrderBookUpdate. tickerId: {}, price: {}, side: {}", tickerId, price, side);
     }
 
     @Override
     public void onTradeUpdate(MarketUpdate marketUpdate, MarketOrderBook marketOrderBook) {
-        log.info("onTradeUpdate. marketUpdate: {}", marketUpdate);
+//        log.info("onTradeUpdate. marketUpdate: {}", marketUpdate);
     }
 
     @Override
     public void onOrderUpdate(OrderMessage orderMessage) {
-        log.info("onOrderUpdate. orderMessage: {}", orderMessage);
+//        log.info("onOrderUpdate. orderMessage: {}", orderMessage);
     }
 
     @Override
@@ -53,41 +57,25 @@ public class RandomOrderSender implements TradingAlgo {
             try {
                 clientNum = 4;
                 tickerNum = 2;
-//            int clientNum = Constants.ME_MAX_NUM_CLIENTS;
-//            int tickerNum = Constants.ME_MAX_TICKERS;
+                sleepTime = Integer.parseInt(env("SLEEP_TIME_MS", "500"));
+                final int orderNum = Integer.parseInt(env("ORDER_NUM", "1_000"));
+                log.info("ORDER_NUM: {}", orderNum);
 
-                OrderRequest[] newOrderRequests = new OrderRequest[clientNum * tickerNum];
-                OrderRequest[] cancelOrderRequests = new OrderRequest[clientNum * tickerNum];
-                for (int i = 0; i < newOrderRequests.length; i++) {
-                    newOrderRequests[i] = new OrderRequest();
-                    cancelOrderRequests[i] = new OrderRequest();
+                log.info("-------------------------------> TEST2 ");
+
+                while (isRunning && nextOrderId.get() < orderNum) {
+                    OrderRequest sellNewOrderRequest = new OrderRequest();
+                    sendNewOrderRequest(sellNewOrderRequest, 0, 0, Side.SELL, 100, 10);
+
+                    OrderRequest buyNewOrderRequest = new OrderRequest();
+                    sendNewOrderRequest(buyNewOrderRequest, 1, 0, Side.BUY, 30, 10);
+
+                    OrderRequest cancelSellNewOrderRequest = new OrderRequest(sellNewOrderRequest);
+                    cancelSellNewOrderRequest.setType(OrderRequestType.CANCEL);
+                    tradeEngine.sendOrderRequest(cancelSellNewOrderRequest);
                 }
-                int sleepTime = Integer.parseInt(Utils.env("SLEEP_TIME_MS", "500"));
-
-                while (isRunning) {
-                    for (int clientId = 0; clientId < clientNum / 2; clientId++) {
-                        for (int tickerId = 0; tickerId < tickerNum; tickerId++) {
-                            OrderRequest orderRequest = getOrderRequest(newOrderRequests, clientId, tickerId);
-                            sendNewOrderRequest(orderRequest, clientId, tickerId, Side.SELL, 100, 10);
-                        }
-                    }
-
-                    for (int clientId = clientNum / 2; clientId < clientNum; clientId++) {
-                        for (int tickerId = 0; tickerId < tickerNum; tickerId++) {
-                            OrderRequest orderRequest = getOrderRequest(newOrderRequests, clientId, tickerId);
-                            sendNewOrderRequest(orderRequest, clientId, tickerId, Side.BUY, 30, 10);
-                        }
-                    }
-
-                    for (int i = 0; i < newOrderRequests.length; i++) {
-                        OrderRequest newOrderRequest = newOrderRequests[i];
-                        OrderRequest cancelOrderRequest = cancelOrderRequests[i];
-
-                        sendCancelOrderRequest(cancelOrderRequest, newOrderRequest);
-                    }
-
-                    sleep(sleepTime);
-                }
+                log.info("-------------------------------> TEST2 DONE <------------------------------ last order id {}",
+                        nextOrderId.get() - 1);
 
             } catch (Exception e) {
                 log.error("Error in RandomOrderSender", e);
@@ -104,60 +92,17 @@ public class RandomOrderSender implements TradingAlgo {
         newOrderRequest.setQty(qty);
         newOrderRequest.setPrice(price);
         tradeEngine.sendOrderRequest(newOrderRequest);
-    }
 
-    private void sendCancelOrderRequest(OrderRequest cancelOrderRequest, OrderRequest newOrderRequest) {
-        cancelOrderRequest.setType(OrderRequestType.CANCEL);
-        cancelOrderRequest.setClientId(newOrderRequest.getClientId());
-        cancelOrderRequest.setTickerId(newOrderRequest.getTickerId());
-        cancelOrderRequest.setOrderId(newOrderRequest.getOrderId());
-        cancelOrderRequest.setSide(newOrderRequest.getSide());
-        cancelOrderRequest.setQty(newOrderRequest.getQty());
-        cancelOrderRequest.setPrice(newOrderRequest.getPrice());
-        tradeEngine.sendOrderRequest(cancelOrderRequest);
-    }
-
-    private OrderRequest getOrderRequest(OrderRequest[] orderRequests, int clientId, int tickerId) {
-        try {
-            if (clientId < 0 || clientId >= clientNum) {
-                log.error("Invalid clientId: {}. clientNum: {}", clientId, clientNum);
-                return null;
-            }
-            if (tickerId < 0 || tickerId >= tickerNum) {
-                log.error("Invalid tickerId: {}. tickerNum: {}", tickerId, tickerNum);
-                return null;
-            }
-            return orderRequests[clientId * tickerNum + tickerId];
-        } catch (Exception e) {
-            log.error("Error in getOrderRequest clientId " + clientId + ", tickerId " + tickerId, e);
-            throw new RuntimeException(e);
+        if (nextOrderId.get() == SLEEP_ORDER_ID) {
+            log.info("Sleeping {}ms on next order |11={}|", sleepTime, SLEEP_ORDER_ID);
+            sleep(sleepTime);
         }
     }
 
-    private int rand(int bound) {
-        return random.nextInt(bound);
-    }
-
-    private void sendRequest(int clientId, Side side, int qty, int price) {
-        OrderRequest orderRequest = new OrderRequest();
-        orderRequest.setType(OrderRequestType.NEW);
-        orderRequest.setClientId(clientId);
-        orderRequest.setTickerId(0);
-
-        orderRequest.setOrderId(nextOrderId.getAndIncrement());
-
-        orderRequest.setSide(side);
-        orderRequest.setPrice(price);
-        orderRequest.setQty(qty);
-
-        orderGatewayClient.doSendOrderRequest(orderRequest);
-    }
-
-    public void shutdown() {
-        isRunning = false;
-    }
-
     private static void sleep(int millis) {
+        if (millis < 1) {
+            return;
+        }
         try {
             Thread.sleep(millis);
         } catch (InterruptedException e) {
@@ -165,15 +110,8 @@ public class RandomOrderSender implements TradingAlgo {
         }
     }
 
-    private void sendRandomSellBuyEverySec() {
-        sleep(1_000);
-
-        int qty = 50 + rand(10);
-        int price = 8 + rand(12);
-
-        sendRequest(10 + rand(10), Side.SELL, qty, price);
-
-        sleep(1_000);
-        sendRequest(10 + rand(10), Side.BUY, qty, price - 6);
+    public void shutdown() {
+        isRunning = false;
     }
+
 }

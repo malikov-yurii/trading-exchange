@@ -1,11 +1,22 @@
 package trading.api;
 
-import org.agrona.AbstractMutableDirectBuffer;
 import org.agrona.DirectBuffer;
-import org.agrona.ExpandableDirectByteBuffer;
 import org.agrona.MutableDirectBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import quickfix.FieldNotFound;
+import quickfix.Message;
+import quickfix.UnsupportedMessageType;
+import quickfix.field.MsgType;
+import quickfix.field.TransactTime;
+import quickfix.fix42.NewOrderSingle;
+
+import java.time.LocalDateTime;
+
+import static quickfix.field.HandlInst.AUTOMATED_EXECUTION_ORDER_PRIVATE_NO_BROKER_INTERVENTION;
+import static quickfix.field.OrdType.LIMIT;
+
+
 
 public class OrderRequestSerDe {
 
@@ -93,4 +104,94 @@ public class OrderRequestSerDe {
         return req;
     }
 
+    public static void toFIXMessage(OrderRequest request, Message fixMessage) {
+        fixMessage.getHeader().clear();
+        fixMessage.clear();
+        fixMessage.getTrailer().clear();
+
+        final String orderId = String.valueOf(request.getOrderId());
+
+        char side = request.getSide() == Side.BUY ? quickfix.field.Side.BUY : quickfix.field.Side.SELL;
+
+        if (request.getType() == OrderRequestType.NEW) {
+            fixMessage.getHeader().setString(35, "D"); // MsgType = NewOrderSingle
+            fixMessage.setChar(40, LIMIT);             // OrdType
+            fixMessage.setDouble(44, request.getPrice()); // Price
+            fixMessage.setChar(21, AUTOMATED_EXECUTION_ORDER_PRIVATE_NO_BROKER_INTERVENTION); // HandlInst
+        } else if (request.getType() == OrderRequestType.CANCEL) {
+            fixMessage.getHeader().setString(35, "F"); // MsgType = OrderCancelRequest
+            fixMessage.setString(41, orderId);         // OrigClOrdID
+        } else {
+            throw new IllegalArgumentException("Unsupported order request type: " + request.getType());
+        }
+
+        fixMessage.setInt(20001, (int) request.getClientId());  // Custom tag: clientId
+        fixMessage.setString(55, String.valueOf(request.getTickerId())); // Symbol
+        fixMessage.setString(11, orderId);                      // ClOrdID
+        fixMessage.setChar(54, side);                           // Side
+        fixMessage.setDouble(38, request.getQty());             // OrderQty
+        fixMessage.setUtcTimeStamp(60, LocalDateTime.now(), true);              // TransactTime
+    }
+
+    public static OrderRequest getOrderRequest(Message message) throws FieldNotFound, UnsupportedMessageType {
+        String msgType = message.getHeader().getString(MsgType.FIELD);
+
+        OrderRequest request = null;
+
+        if (msgType.equals(MsgType.ORDER_SINGLE)) { // New Order
+            NewOrderSingle order = (NewOrderSingle) message;
+
+            long clientId = getCustomLongField(message, 20001, -1); // Optional tag for client ID
+            long seqNum = getCustomLongField(message, 20002, -1);  // Optional tag for seqNum
+            long orderId = Long.parseLong(order.getClOrdID().getValue());
+            long tickerId = Long.parseLong(order.getSymbol().getValue());
+            char sideChar = order.getSide().getValue();
+            long qty = (long) order.getOrderQty().getValue();
+            long price = (long) order.getPrice().getValue();
+
+            request = new OrderRequest(
+                    seqNum,
+                    OrderRequestType.NEW,
+                    clientId,
+                    tickerId,
+                    orderId,
+                    sideChar == quickfix.field.Side.BUY ? Side.BUY : Side.SELL,
+                    price,
+                    qty
+            );
+        } else if (msgType.equals(MsgType.ORDER_CANCEL_REQUEST)) {
+            quickfix.fix42.OrderCancelRequest cancel = (quickfix.fix42.OrderCancelRequest) message;
+
+            long clientId = getCustomLongField(message, 20001, -1);
+            long seqNum = getCustomLongField(message, 20002, -1);
+            long orderId = Long.parseLong(cancel.getClOrdID().getValue());
+            long tickerId = Long.parseLong(cancel.getSymbol().getValue());
+            char sideChar = cancel.getSide().getValue();
+
+            request = new OrderRequest(
+                    seqNum,
+                    OrderRequestType.CANCEL,
+                    clientId,
+                    tickerId,
+                    orderId,
+                    sideChar == quickfix.field.Side.BUY ? Side.BUY : Side.SELL,
+                    0,
+                    0
+            );
+        } else {
+            throw new UnsupportedMessageType();
+        }
+        return request;
+    }
+
+    public static long getCustomLongField(Message message, int tag, long defaultValue) {
+        try {
+            if (message.isSetField(tag)) {
+                return Long.parseLong(message.getString(tag));
+            }
+        } catch (Exception e) {
+            log.warn("Failed to parse custom field {}: {}", tag, e.getMessage());
+        }
+        return defaultValue;
+    }
 }

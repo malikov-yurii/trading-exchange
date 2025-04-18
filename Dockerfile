@@ -7,10 +7,11 @@ SHELL [ "/bin/bash", "-o", "pipefail", "-c" ]
 
 COPY --chmod=755 bin /root/bin
 
-
 RUN /root/bin/setup-docker.sh
 
 WORKDIR /root/jar/
+
+COPY src/main/resources/logback*.xml /root/jar
 
 COPY --chmod=755 target/trading.jar /root/jar/app.jar
 

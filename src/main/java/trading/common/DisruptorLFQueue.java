@@ -1,68 +1,49 @@
 package trading.common;
 
-import com.lmax.disruptor.BlockingWaitStrategy;
-import com.lmax.disruptor.BusySpinWaitStrategy;
 import com.lmax.disruptor.EventFactory;
 import com.lmax.disruptor.RingBuffer;
 import com.lmax.disruptor.TimeoutException;
-import com.lmax.disruptor.WaitStrategy;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
+import org.apache.commons.lang3.ObjectUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Objects;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
-
-import static trading.common.Utils.env;
 
 public class DisruptorLFQueue<T> implements LFQueue<T> {
 
     private static final Logger log = LoggerFactory.getLogger(DisruptorLFQueue.class);
     private final String name;
 
-    private static class Event<T> {
-        T request;
-    }
+    private final Disruptor<T> disruptor;
+    private final RingBuffer<T> ringBuffer;
+    private final BiConsumer<T, T> copyFromTo;
 
-    private static class EventFactoryImpl<T> implements EventFactory<Event<T>> {
-        @Override
-        public Event<T> newInstance() {
-            return new Event<>();
-        }
-    }
+    public DisruptorLFQueue(Integer sizeInPowerOfTwo,
+                            String name,
+                            ProducerType producerType,
+                            EventFactory<T> eventFactory,
+                            BiConsumer<T, T> copyFromTo) {
 
-    private final Disruptor<Event<T>> disruptor;
-    private final RingBuffer<Event<T>> ringBuffer;
+        int power = Objects.requireNonNullElseGet(sizeInPowerOfTwo,
+                () -> Integer.valueOf(Utils.env("DISRUPTOR_SIZE_POWER_OF_2", "10")));
 
-    /**
-     * @param bufferSize   must be a power of 2
-     * @param name
-     * @param producerType
-     */
-    public DisruptorLFQueue(int bufferSize, String name, ProducerType producerType) {
-
-        WaitStrategy waitStrategy;
-        String env = env("DISRUPTOR_WAIT_STRATEGY", "BLOCKING_WAIT");
-        if ("BLOCKING_WAIT".equals(env)) {
-            log.info("Using BlockingWaitStrategy");
-            waitStrategy = new BlockingWaitStrategy();
-        } else { /* BUSY_SPIN */
-            waitStrategy = new BusySpinWaitStrategy();
-        }
-
-        // Create the Disruptor with a single producer and a busy-spin wait strategy.
+        int ringBufferSize = 1 << power;
         disruptor = new Disruptor<>(
-                new EventFactoryImpl<>(),
-                bufferSize,
+                eventFactory,
+                ringBufferSize,
                 Executors.defaultThreadFactory(),
                 producerType,
-                waitStrategy
+                Utils.getDisruptorWaitStrategy()
         );
         ringBuffer = disruptor.getRingBuffer();
         this.name = name;
-//        log.info("DisruptorLFQueue {} created with bufferSize {}", name, bufferSize);
+        this.copyFromTo = copyFromTo;
     }
 
     @Override
@@ -75,8 +56,8 @@ public class DisruptorLFQueue<T> implements LFQueue<T> {
     public void offer(T request) {
         long sequence = ringBuffer.next();
         try {
-            Event<T> event = ringBuffer.get(sequence);
-            event.request = request;
+            T event = ringBuffer.get(sequence);
+            copyFromTo.accept(request, event);
 //            log.info(name + " | Offered sequence={} | {}", sequence, request);
         } catch (Exception ex) {
             log.error(name + " | Error offering request", ex);
@@ -90,8 +71,7 @@ public class DisruptorLFQueue<T> implements LFQueue<T> {
         disruptor.handleEventsWith((event, sequence, endOfBatch) -> {
             try {
 //                log.info(name + " | Passing to consumer sequence={} endOfBatch={} | {}", sequence, endOfBatch, event.request);
-                consumer.accept(event.request);
-                event.request = null; // Clear to reduce GC pressure
+                consumer.accept(event);
             } catch (Exception ex) {
                 log.error(name + " | Error handling event", ex);
             }

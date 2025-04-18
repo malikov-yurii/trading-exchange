@@ -59,7 +59,7 @@ public class MarketUpdateSerDe {
         long priority = buffer.getLong(start, ByteOrder.LITTLE_ENDIAN);
         start += Long.BYTES;
 
-        return new MarketUpdate(seqNum, type, orderId, tickerId, side, price, qty, priority);
+        return new MarketUpdate(type, orderId, tickerId, side, price, qty, priority, seqNum);
     }
 
 }

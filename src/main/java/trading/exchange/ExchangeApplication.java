@@ -7,12 +7,13 @@ import org.slf4j.LoggerFactory;
 import trading.api.MarketUpdate;
 import trading.api.OrderMessage;
 import trading.api.OrderRequest;
-import trading.common.Constants;
 import trading.common.DisruptorLFQueue;
+import trading.common.DisruptorLogger;
 import trading.common.LFQueue;
 import trading.exchange.marketdata.MarketDataPublisher;
 import trading.exchange.marketdata.MarketDataSnapshotPublisher;
 import trading.exchange.matching.MatchingEngine;
+import trading.exchange.orderserver.FIXOrderServer;
 import trading.exchange.orderserver.OrderServer;
 
 import java.net.UnknownHostException;
@@ -31,6 +32,7 @@ public class ExchangeApplication {
     private MarketDataPublisher marketDataPublisher;
     private OrderServer orderServer;
     private AppState appState;
+    private DisruptorLogger asyncLogger;
 
     public static void main(String[] args) throws UnknownHostException {
         ExchangeApplication exchangeApplication = new ExchangeApplication();
@@ -46,17 +48,22 @@ public class ExchangeApplication {
         leadershipManager.start();
         appState = new AppState(leadershipManager);
 
-        clientRequests = new DisruptorLFQueue<>(1024, "clientRequests", ProducerType.SINGLE);
-        clientResponses = new DisruptorLFQueue<>(1024, "clientResponses", ProducerType.SINGLE);
-        marketUpdates = new DisruptorLFQueue<>(1024, "marketUpdates", ProducerType.SINGLE);
-        sequencedMarketUpdates = new DisruptorLFQueue<>(1024, "sequencedMarketUpdates", ProducerType.SINGLE);
+        clientRequests = new DisruptorLFQueue<>(null, "clientRequests", ProducerType.SINGLE, OrderRequest::new, OrderRequest::copy);
+        clientResponses = new DisruptorLFQueue<>(null, "clientResponses", ProducerType.SINGLE, OrderMessage::new, OrderMessage::copy);
+        marketUpdates = new DisruptorLFQueue<>(null, "marketUpdates", ProducerType.SINGLE, MarketUpdate::new, MarketUpdate::copy);
+        sequencedMarketUpdates = new DisruptorLFQueue<>(null, "sequencedMarketUpdates", ProducerType.SINGLE, MarketUpdate::new, MarketUpdate::copy);
 
         matchingEngine = new MatchingEngine(clientRequests, clientResponses, marketUpdates);
 
-        orderServer = new OrderServer(clientRequests, clientResponses, leadershipManager, appState);
-        marketDataPublisher = new MarketDataPublisher(marketUpdates, sequencedMarketUpdates, appState);
-        snapshotPublisher = new MarketDataSnapshotPublisher(sequencedMarketUpdates, appState, Constants.ME_MAX_TICKERS);
+//        orderServer = new NettyOrderServer(clientRequests, clientResponses, leadershipManager, appState);
+        asyncLogger = new DisruptorLogger(10);
 
+        orderServer = new FIXOrderServer(clientRequests, clientResponses, leadershipManager, appState, asyncLogger);
+
+//        marketDataPublisher = new MarketDataPublisher(marketUpdates, sequencedMarketUpdates, appState);
+//        snapshotPublisher = new MarketDataSnapshotPublisher(sequencedMarketUpdates, appState, Constants.ME_MAX_TICKERS);
+
+        asyncLogger.init();
         clientRequests.init();
         clientResponses.init();
         marketUpdates.init();
@@ -83,6 +90,7 @@ public class ExchangeApplication {
         log.info("Trading Exchange Application terminated");
 
         // TODO: Shutdown System.exit(0) on  shutdownExchange()???
+        asyncLogger.shutdown();
         System.exit(0);
     }
 

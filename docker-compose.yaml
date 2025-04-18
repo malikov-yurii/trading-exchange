@@ -15,6 +15,11 @@ x-common-env: &common-env
   CONTROLPORT: 17000
   EVENTSPORT: 17001
   WS_PORT: 8090
+  #DISRUPTOR_WAIT_STRATEGY: SLEEPING_WAIT
+  DISRUPTOR_WAIT_STRATEGY: YIELDING_WAIT
+  #DISRUPTOR_WAIT_STRATEGY: BUSY_SPIN
+  #DISRUPTOR_SIZE_POWER_OF_2: 8 (9.5s)
+  DISRUPTOR_SIZE_POWER_OF_2: 10
 
 services:
 
@@ -29,7 +34,12 @@ services:
       ALGO_TYPE: RANDOM
       ORDER_SERVER_HOSTS: exchange-1,exchange-2,exchange-3
       THISHOST: "trader-r"
-      SLEEP_TIME_MS: 100
+#      t1 t4
+      SLEEP_TIME_MS: 60_000
+      SLEEP_ORDER_ID: 2_400_000
+      ORDER_NUM: 2_600_500
+      # t2 t3:
+#      ORDER_NUM: 10
       <<: *common-env
     hostname: trader-r
     volumes:
@@ -50,6 +60,15 @@ services:
     environment:
       INSTANCE_ID: "1"
       THISHOST: "exchange-1"
+      JAVA_TOOL_OPTIONS: >
+        -Dlogback.configurationFile=/root/jar/logback.xml
+        -XX:+TieredCompilation
+        -XX:TieredStopAtLevel=4
+        -XX:+AlwaysPreTouch
+        -XX:+UseNUMA
+        -XX:+UseStringDeduplication
+        -Xms3G
+        -Xmx3G
       <<: *common-env
     hostname: exchange-1
     volumes:
@@ -70,36 +89,26 @@ services:
     environment:
       INSTANCE_ID: "2"
       THISHOST: "exchange-2"
+      JAVA_TOOL_OPTIONS: >
+        -Dlogback.configurationFile=/root/jar/logback.xml
+        -XX:+TieredCompilation
+        -XX:TieredStopAtLevel=4
+        -XX:+AlwaysPreTouch
+        -XX:+UseNUMA
+        -XX:+UseStringDeduplication
+        -Xms3G
+        -Xmx3G
       <<: *common-env
     hostname: exchange-2
     volumes:
       - aeron-dir:/dev/shm/aeron-root
     depends_on:
+      - exchange-1
       - archive-host
       - zookeeper
     networks:
       default:
         ipv4_address: 10.43.0.22
-
-  exchange-3:
-    container_name: exchange-3
-    shm_size: "1gb"
-    build:
-      context: .
-    entrypoint: /root/bin/exchange_entrypoint.sh
-    environment:
-      INSTANCE_ID: "2"
-      THISHOST: "exchange-3"
-      <<: *common-env
-    hostname: exchange-3
-    volumes:
-      - aeron-dir:/dev/shm/aeron-root
-    depends_on:
-      - archive-host
-      - zookeeper
-    networks:
-      default:
-        ipv4_address: 10.43.0.23
 
   archive-host:
     container_name: archive-host
@@ -120,13 +129,15 @@ services:
   zookeeper:
     image: bitnami/zookeeper:latest
     container_name: zookeeper
+    hostname: zookeeper
     environment:
       - ALLOW_ANONYMOUS_LOGIN=yes
       - ZOO_STANDALONE_ENABLED=true
       - ZOO_PORT_NUMBER=2181
       - ZOO_SERVER_ID=1
       - ZOO_ADVERTISED_HOSTNAME=zookeeper
-    hostname: zookeeper
+    volumes:
+      - ./config/zoo.cfg:/opt/bitnami/zookeeper/conf/zoo.cfg
     networks:
       default:
         ipv4_address: 10.43.0.3

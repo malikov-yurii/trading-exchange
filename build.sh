@@ -8,5 +8,4 @@ mvn clean package -DskipTests
 
 docker compose build
 
-./startInfra.sh
 

@@ -32,7 +32,7 @@ import java.util.Objects;
  * 3) Moves to a "RUNNING" state (no further actions needed).
  */
 public class ArchiveHostAgent implements Agent {
-    private static final Logger LOGGER = LoggerFactory.getLogger(ArchiveHostAgent.class);
+    private static final Logger log = LoggerFactory.getLogger(ArchiveHostAgent.class);
     private static final EpochClock CLOCK = SystemEpochClock.INSTANCE;
 
     public static final String AERON_UDP_ENDPOINT = "aeron:udp?endpoint=";
@@ -68,22 +68,22 @@ public class ArchiveHostAgent implements Agent {
 
         currentState = State.AERON_READY;
 
-        LOGGER.info("ArchiveHostAgent constructed. Media Driver directory is {}; Archive directory is {}",
+        log.info("ArchiveHostAgent constructed. Media Driver directory is {}; Archive directory is {}",
                 archivingMediaDriver.mediaDriver().aeronDirectoryName(),
                 archivingMediaDriver.archive().context().archiveDirectoryName());
     }
 
     private ArchivingMediaDriver launchMediaDriver(final String host, final int controlChannelPort,
                                                    final int recordingEventsPort) {
-        LOGGER.info("Launching ArchivingMediaDriver (Archive + MediaDriver)");
+        log.info("Launching ArchivingMediaDriver (Archive + MediaDriver)");
         final String controlChannel = AERON_UDP_ENDPOINT + host + ":" + controlChannelPort;
         final String replicationChannel = AERON_UDP_ENDPOINT + host + ":" + (controlChannelPort + 1);
         final String recordingEventsChannel = "aeron:udp?control-mode=dynamic|control=" + host + ":" + recordingEventsPort;
         boolean deleteOnStart = Boolean.parseBoolean(System.getenv().getOrDefault("DELETE_AERON_DIR", "false"));
-        LOGGER.info("Delete Aeron directory on start: {}", deleteOnStart);
+        log.info("Delete Aeron directory on start: {}", new Boolean(deleteOnStart));
 
         String aeronDir = System.getenv().getOrDefault("AERON_DIR", "/dev/shm/aeron-root");
-        LOGGER.info("Aeron directory is {}", aeronDir);
+        log.info("Aeron directory is {}", aeronDir);
 
         final var archiveContext = new Archive.Context()
                 .aeronDirectoryName(aeronDir)
@@ -107,9 +107,9 @@ public class ArchiveHostAgent implements Agent {
     }
 
     private Aeron launchAeron(final ArchivingMediaDriver archivingMediaDriver) {
-        LOGGER.info("Launching Aeron client connection");
+        log.info("Launching Aeron client connection");
         String aeronDir = archivingMediaDriver.mediaDriver().aeronDirectoryName();
-        LOGGER.info("archivingMediaDriver.mediaDriver().aeronDirectoryName() is {}", aeronDir);
+        log.info("archivingMediaDriver.mediaDriver().aeronDirectoryName() is {}", aeronDir);
         return Aeron.connect(
                 new Aeron.Context()
                         .aeronDirectoryName(aeronDir)
@@ -119,12 +119,12 @@ public class ArchiveHostAgent implements Agent {
     }
 
     private void errorHandler(final Throwable throwable) {
-        LOGGER.error("Unexpected failure {}", throwable.getMessage(), throwable);
+        log.error("Unexpected failure {}", throwable.getMessage(), throwable);
     }
 
     @Override
     public void onStart() {
-        LOGGER.info("ArchiveHostAgent.onStart()");
+        log.info("ArchiveHostAgent.onStart()");
         Agent.super.onStart();
     }
 
@@ -132,15 +132,18 @@ public class ArchiveHostAgent implements Agent {
     public int doWork() {
         // We just transition to ARCHIVE_RUNNING once everything is set up.
         switch (currentState) {
-            case AERON_READY -> {
+            case AERON_READY:
                 currentState = State.ARCHIVE_RUNNING;
-                LOGGER.info("Archive is now running.");
-            }
-            case ARCHIVE_RUNNING -> {
+                log.info("Archive is now running.");
+                break;
+
+            case ARCHIVE_RUNNING:
                 // No additional work needed here. Archive is up and waiting for external publishers.
-            }
-            default -> {
-            }
+                break;
+
+            default:
+                // No-op
+                break;
         }
 
         return 0; // No “work” to do per-se
@@ -148,7 +151,7 @@ public class ArchiveHostAgent implements Agent {
 
     @Override
     public void onClose() {
-        LOGGER.info("ArchiveHostAgent shutting down");
+        log.info("ArchiveHostAgent shutting down");
         this.currentState = State.SHUTTING_DOWN;
 
         CloseHelper.quietClose(aeron);
@@ -169,15 +172,16 @@ public class ArchiveHostAgent implements Agent {
                     final Enumeration<InetAddress> interfaceAddresses = networkInterface.getInetAddresses();
                     while (interfaceAddresses.hasMoreElements()) {
                         final InetAddress address = interfaceAddresses.nextElement();
-                        if (address instanceof Inet4Address inet4Address) {
-                            LOGGER.info("Detected IPv4 address: {}", inet4Address.getHostAddress());
+                        if (address instanceof Inet4Address) {
+                            Inet4Address inet4Address = (Inet4Address) address;
+                            log.info("Detected IPv4 address: {}", inet4Address.getHostAddress());
                             return inet4Address.getHostAddress();
                         }
                     }
                 }
             }
         } catch (final SocketException e) {
-            LOGGER.info("Failed to get interface addresses: {}", e.getMessage());
+            log.info("Failed to get interface addresses: {}", e.getMessage());
         }
         return fallback;
     }

@@ -60,7 +60,7 @@ public class Position {
 
         position += sign * fillQty;
         tradedQty += fillQty;
-        log.info("addFill {}{}@{} {}", side == Side.BUY ? '+' : '-', fillQty, fillPrice, this);
+//        log.info("addFill {}{}@{} {}", side == Side.BUY ? '+' : '-', fillQty, fillPrice, this);
     }
 
     @Override

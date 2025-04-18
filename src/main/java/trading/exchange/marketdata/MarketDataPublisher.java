@@ -20,6 +20,7 @@ public class MarketDataPublisher {
     private final AeronPublisher aeronPublisher;
     private final AppState appState;
     private final AtomicLong msgSeqNum = new AtomicLong();
+    private final ExpandableDirectByteBuffer buffer = new ExpandableDirectByteBuffer(128);
 
     public MarketDataPublisher(LFQueue<MarketUpdate> marketUpdateLFQueue,
                                LFQueue<MarketUpdate> sequencedMarketUpdates,
@@ -50,7 +51,6 @@ public class MarketDataPublisher {
         marketUpdate.setSeqNum(msgSeqNum.getAndIncrement());
         this.sequencedMarketUpdates.offer(marketUpdate);
 
-        ExpandableDirectByteBuffer buffer = new ExpandableDirectByteBuffer(128);
         int offset = 0;
         int length = MarketUpdateSerDe.serializeMarketUpdate(marketUpdate, buffer, offset);
 

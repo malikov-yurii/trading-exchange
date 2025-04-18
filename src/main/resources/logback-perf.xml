@@ -1,0 +1,22 @@
+<configuration>
+
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <file>perf-test.log</file>
+        <append>true</append>
+        <encoder>
+            <pattern>%msg%n</pattern> <!-- Just the message, no timestamp/thread info -->
+        </encoder>
+    </appender>
+
+    <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
+        <queueSize>16384</queueSize> <!-- Large queue for spikes -->
+        <discardingThreshold>0</discardingThreshold> <!-- Keep all logs -->
+        <neverBlock>true</neverBlock> <!-- Drop logs if overwhelmed -->
+        <appender-ref ref="FILE"/>
+    </appender>
+
+    <root level="INFO"> <!-- Only log WARN and ERROR -->
+        <appender-ref ref="ASYNC_FILE"/>
+    </root>
+
+</configuration>
