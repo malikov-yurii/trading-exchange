@@ -36,10 +36,12 @@ public class MarketDataConsumer implements Runnable {
     private void processBuffer(DirectBuffer buffer, int offset, int length) {
         MarketUpdate marketUpdate = MarketUpdateSerDe.deserialize(buffer, offset);
         if (log.isDebugEnabled()) {
-            log.debug("Received {}", marketUpdate);
+//            log.debug("Received {}", marketUpdate);
         }
-        tradeEngineUpdate.set(marketUpdate);
-        tradeEngineUpdates.offer(tradeEngineUpdate);
+        log.info("Received {}", marketUpdate);
+        //todo: FIX bug in trade engine. Stuck when uncommented
+//        tradeEngineUpdate.set(marketUpdate);
+//        tradeEngineUpdates.offer(tradeEngineUpdate);
     }
 
     public void shutdown() {

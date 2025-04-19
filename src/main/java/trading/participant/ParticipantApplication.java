@@ -11,6 +11,7 @@ import trading.common.DisruptorLFQueue;
 import trading.common.DisruptorLogger;
 import trading.common.LFQueue;
 import trading.participant.marketdata.MarketDataConsumer;
+import trading.participant.marketdata.MarketDataSnapshotConsumer;
 import trading.participant.ordergateway.FIXOrderGatewayClient;
 import trading.participant.ordergateway.OrderGatewayClient;
 import trading.participant.strategy.AlgoType;
@@ -30,9 +31,9 @@ public class ParticipantApplication {
         Thread marketDataConsumerThread = new Thread(marketDataConsumer);
         marketDataConsumerThread.start();
 
-//        MarketDataSnapshotConsumer marketDataSnapshotConsumer = new MarketDataSnapshotConsumer();
-//        Thread marketDataSnapshotConsumerThread = new Thread(marketDataSnapshotConsumer);
-//        marketDataSnapshotConsumerThread.start();
+        MarketDataSnapshotConsumer marketDataSnapshotConsumer = new MarketDataSnapshotConsumer();
+        Thread marketDataSnapshotConsumerThread = new Thread(marketDataSnapshotConsumer);
+        marketDataSnapshotConsumerThread.start();
 
         Thread.sleep(200); // TODO Improve waiting for MarketDataConsumer to start
 

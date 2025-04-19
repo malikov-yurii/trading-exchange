@@ -133,33 +133,36 @@ public class OrderMessageSerDe {
 
     public static void toFIXMessage(OrderMessage orderMessage, Message msg) throws Exception {
         msg.clear();
-
-        msg.getHeader().setChar(35, '8');
-//        msg.setChar(35, '8');
-
         msg.setString(37, Long.toString(orderMessage.getMarketOrderId())); // OrderID
         msg.setString(17, Long.toString(orderMessage.getSeqNum()));        // ExecID
 
         char execType;
         char ordStatus;
+        char msgType;
 
         switch (orderMessage.getType()) {
             case ACCEPTED -> {
-                execType = '0'; ordStatus = '0';
+                execType = '0'; ordStatus = '0'; msgType = '8';
             }
             case CANCELED -> {
-                execType = '4'; ordStatus = '4';
+                execType = '4'; ordStatus = '4'; msgType = '8';
             }
             case FILLED -> {
-                execType = '2'; ordStatus = '2';
+                execType = '2'; ordStatus = '2'; msgType = '8';
             }
             case CANCEL_REJECTED -> {
-                execType = '8'; ordStatus = '8';
+                execType = '8'; ordStatus = '8'; msgType = '9';
+            }
+            case REJECTED -> {
+                execType = '8'; ordStatus = '8'; msgType = '8';
             }
             default -> {
-                execType = '8'; ordStatus = '8';
+                execType = '8'; ordStatus = '8'; msgType = '8';
             }
         }
+
+        msg.getHeader().setChar(35, msgType);
+
 
         msg.setChar(150, execType); // ExecType
         msg.setChar(39, ordStatus); // OrdStatus
@@ -182,10 +185,7 @@ public class OrderMessageSerDe {
     }
 
     public static void toOrderMessage(Message message, OrderMessage orderMessage) throws FieldNotFound {
-        // Ensure it's an ExecutionReport
-        if (!MsgType.EXECUTION_REPORT.equals(message.getHeader().getString(MsgType.FIELD))) {
-            throw new IllegalArgumentException("Expected ExecutionReport (MsgType=8)");
-        }
+        String msgType = message.getHeader().getString(MsgType.FIELD);
 
         ExecType execType = new ExecType(message.getChar(ExecType.FIELD));
         OrderMessageType type;
@@ -202,7 +202,13 @@ public class OrderMessageSerDe {
                 type = OrderMessageType.CANCELED;
                 break;
             case ExecType.REJECTED:
-                type = OrderMessageType.CANCEL_REJECTED;
+                if (MsgType.EXECUTION_REPORT.equals(msgType)) {
+                    type = OrderMessageType.REJECTED;
+                } else if (MsgType.ORDER_CANCEL_REJECT.equals(msgType)) {
+                    type = OrderMessageType.CANCEL_REJECTED;
+                } else {
+                    type = OrderMessageType.INVALID;
+                }
                 break;
             default:
                 type = OrderMessageType.INVALID;

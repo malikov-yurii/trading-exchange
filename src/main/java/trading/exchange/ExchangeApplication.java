@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import trading.api.MarketUpdate;
 import trading.api.OrderMessage;
 import trading.api.OrderRequest;
+import trading.common.Constants;
 import trading.common.DisruptorLFQueue;
 import trading.common.DisruptorLogger;
 import trading.common.LFQueue;
@@ -50,18 +51,33 @@ public class ExchangeApplication {
 
         clientRequests = new DisruptorLFQueue<>(null, "clientRequests", ProducerType.SINGLE, OrderRequest::new, OrderRequest::copy);
         clientResponses = new DisruptorLFQueue<>(null, "clientResponses", ProducerType.SINGLE, OrderMessage::new, OrderMessage::copy);
-        marketUpdates = new DisruptorLFQueue<>(null, "marketUpdates", ProducerType.SINGLE, MarketUpdate::new, MarketUpdate::copy);
-        sequencedMarketUpdates = new DisruptorLFQueue<>(null, "sequencedMarketUpdates", ProducerType.SINGLE, MarketUpdate::new, MarketUpdate::copy);
+        marketUpdates = new DisruptorLFQueue<>(20, "marketUpdates", ProducerType.SINGLE, MarketUpdate::new, MarketUpdate::copy);
+        sequencedMarketUpdates = new DisruptorLFQueue<>(20, "sequencedMarketUpdates", ProducerType.SINGLE, MarketUpdate::new, MarketUpdate::copy);
 
         matchingEngine = new MatchingEngine(clientRequests, clientResponses, marketUpdates);
 
-//        orderServer = new NettyOrderServer(clientRequests, clientResponses, leadershipManager, appState);
         asyncLogger = new DisruptorLogger(10);
 
         orderServer = new FIXOrderServer(clientRequests, clientResponses, leadershipManager, appState, asyncLogger);
 
-//        marketDataPublisher = new MarketDataPublisher(marketUpdates, sequencedMarketUpdates, appState);
-//        snapshotPublisher = new MarketDataSnapshotPublisher(sequencedMarketUpdates, appState, Constants.ME_MAX_TICKERS);
+        marketDataPublisher = new MarketDataPublisher(marketUpdates, sequencedMarketUpdates, appState);
+        snapshotPublisher = new MarketDataSnapshotPublisher(sequencedMarketUpdates, appState, Constants.ME_MAX_TICKERS);
+
+//        leadershipManager.onLeadershipAcquired(() -> {
+//            marketDataPublisher = new MarketDataPublisher(marketUpdates, sequencedMarketUpdates, appState);
+//            snapshotPublisher = new MarketDataSnapshotPublisher(sequencedMarketUpdates, appState, Constants.ME_MAX_TICKERS);
+//        });
+//
+//        leadershipManager.onLeadershipLost(() -> {
+//            if (marketDataPublisher != null) {
+//                marketDataPublisher.close();
+//                marketDataPublisher = null;
+//            }
+//            if (snapshotPublisher != null) {
+//                snapshotPublisher.close();
+//                snapshotPublisher = null;
+//            }
+//        });
 
         asyncLogger.init();
         clientRequests.init();
@@ -72,7 +88,7 @@ public class ExchangeApplication {
         matchingEngine.start();
         try {
             // todo check why does not work without it
-            Thread.sleep(7_000);
+            Thread.sleep(2_000);
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }

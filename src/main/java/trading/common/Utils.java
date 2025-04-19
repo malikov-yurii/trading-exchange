@@ -54,4 +54,8 @@ public class Utils {
         }
         return waitStrategy;
     }
+
+    public static String getTestTag(long orderId) {
+        return  "|11=" + orderId + "|";
+    }
 }

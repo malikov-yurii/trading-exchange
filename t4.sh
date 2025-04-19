@@ -17,10 +17,9 @@ sleep 110
 date
 
 docker stats --no-stream
-
 date
 
 docker logs trader-r | grep --color=always '11=1|\|11=2399999\|11=2400000\|11=2600000'
 
-
 date
+echo "Perf test end"

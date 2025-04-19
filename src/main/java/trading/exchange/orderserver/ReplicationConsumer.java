@@ -48,7 +48,8 @@ public class ReplicationConsumer implements Runnable {
 
     private void processReplicationEvent(DirectBuffer buffer, int offset, int length) {
         OrderRequest orderRequest = OrderRequestSerDe.deserializeClientRequest(buffer, offset, length);
-        log.info("Received {} offset {} length {}", orderRequest, offset, length);
+        log.info("{} Received {} offset {} length {}", Utils.getTestTag(orderRequest.getClientId()),
+                orderRequest, offset, length);
 
         lastSeqNum = orderRequest.getSeqNum();
 

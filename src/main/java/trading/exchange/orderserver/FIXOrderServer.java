@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import quickfix.Acceptor;
 import quickfix.Application;
 import quickfix.ApplicationAdapter;
+import quickfix.Dictionary;
 import quickfix.FieldNotFound;
 import quickfix.FileStoreFactory;
 import quickfix.LogFactory;
@@ -28,7 +29,9 @@ import trading.exchange.AppState;
 import trading.exchange.LeadershipManager;
 import trading.exchange.ReplayReplicationLogConsumer;
 
+import java.util.Iterator;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -91,24 +94,57 @@ public class FIXOrderServer implements OrderServer {
 
     private void startFIXAcceptor() {
         try {
-            final var thisHost = System.getenv().get("THISHOST");
-            SessionSettings settings;
-            if (thisHost.endsWith("1")) {
-                settings = new SessionSettings("fix-server1.cfg");
-            } else if (thisHost.endsWith("2")) {
-                settings = new SessionSettings("fix-server2.cfg");
-            } else {
-                throw new IllegalStateException("Unknown host: " + thisHost);
+            // 1) figure out which IFC host we're on
+            final String thisHost = System.getenv("THISHOST");
+            final String dynamicSenderCompID = switch (thisHost) {
+                case "exchange-1" -> "E1";
+                case "exchange-2" -> "E2";
+                case "exchange-3" -> "E3";
+                default -> throw new IllegalStateException("Unknown host: " + thisHost);
+            };
+
+            // 2) Read the “template” config file (has exactly one [session] with SenderCompID=E1)
+            SessionSettings template = new SessionSettings("fix-server.cfg");
+
+            // 3) Pull out its default section...
+            Dictionary defaultDict = template.get();  // this is the defaults
+            // 4) And pull out its single real session section:
+            Iterator<SessionID> iter = template.sectionIterator();
+            if (!iter.hasNext()) {
+                throw new IllegalStateException("No session in fix-server.cfg");
             }
-            log.info(" {} | Starting FIX acceptor with settings: {}", thisHost, settings);
+            SessionID origSessionId = iter.next();
+            Properties origSessionProps = template.getSessionProperties(origSessionId, /*includeDefaults=*/ true);
+
+            // 5) Tweak that one session’s SenderCompID in the copy of its properties
+            origSessionProps.setProperty(SessionSettings.SENDERCOMPID, dynamicSenderCompID);
+
+            // 6) Build a brand new Settings object with only defaults + our one updated session
+            SessionSettings settings = new SessionSettings();
+            settings.set(defaultDict);  // populate defaults
+            // create a new SessionID key for it:
+            SessionID newSessionId = new SessionID(
+                    origSessionId.getBeginString(),
+                    dynamicSenderCompID,
+                    origSessionId.getTargetCompID()
+            );
+            settings.set(newSessionId, new Dictionary(null, origSessionProps));
+
+            log.info("{} | Starting FIX acceptor for session {}", thisHost, newSessionId);
+
+            // 7) The rest is unchanged
             MessageStoreFactory storeFactory = new FileStoreFactory(settings);
-//            LogFactory logFactory = new ScreenLogFactory(true, true, true);
-            LogFactory logFactory = new PipeDelimitedScreenLogFactory(asyncLogger);
+            LogFactory logFactory       = new PipeDelimitedScreenLogFactory(asyncLogger);
             MessageFactory messageFactory = new ReusableMessageFactory(new Message());
+            Application application     = new FIXApplicationAdapter();
 
-            Application application = new FIXApplicationAdapter();
-
-            acceptor = new ThreadedSocketAcceptor(application, storeFactory, settings, logFactory, messageFactory);
+            acceptor = new ThreadedSocketAcceptor(
+                    application,
+                    storeFactory,
+                    settings,
+                    logFactory,
+                    messageFactory
+            );
             acceptor.start();
             log.info("FIX acceptor started.");
         } catch (Exception e) {

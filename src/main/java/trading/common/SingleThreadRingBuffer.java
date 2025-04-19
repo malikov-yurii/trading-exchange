@@ -11,13 +11,21 @@ public class SingleThreadRingBuffer<T> implements Queue<T> {
     private static final Logger log = LoggerFactory.getLogger(SingleThreadRingBuffer.class);
     private final Object[] buffer;
     private final int capacity;
+    private final boolean logEnabled;
+    private final String name;
     private int head = 0;
     private int tail = 0;
     private int size = 0;
 
     public SingleThreadRingBuffer(int capacity) {
+        this(capacity, "", false);
+    }
+
+    public SingleThreadRingBuffer(int capacity, String name, Boolean logEnabled) {
         this.capacity = capacity;
         this.buffer = new Object[capacity];
+        this.name = name;
+        this.logEnabled = logEnabled;
     }
 
     @Override
@@ -26,13 +34,14 @@ public class SingleThreadRingBuffer<T> implements Queue<T> {
             log.error(String.format("%s | SingleThreadRingBuffer is full. size: %s, capacity: %s, head: %s : %s, tail: %s : %s, 0: %s, 1:%s, 2:%s, 3:%s, 4:%s, 5:%s",
                     Thread.currentThread(), size, capacity, head, buffer[head], tail, buffer[tail], buffer[0], buffer[1], buffer[2], buffer[3], buffer[4], buffer[5]));
             System.exit(1);
-//            throw new RuntimeException(String.format("%s | SingleThreadRingBuffer is full. size: %s, capacity: %s",
-//                    Thread.currentThread(), size, capacity));
         }
 
         buffer[tail] = item;
         tail = (tail + 1) % capacity;
         size++;
+        if (logEnabled) {
+            log.info("{} | offer. head: {}, tail: {}, size: {}, capacity: {}", name, head, tail, size, capacity);
+        }
         return true;
     }
 
@@ -48,15 +57,15 @@ public class SingleThreadRingBuffer<T> implements Queue<T> {
             log.error(String.format("%s | SingleThreadRingBuffer is empty. size: %s, capacity: %s, head: %s : %s, tail: %s : %s, 0: %s, 1:%s, 2:%s, 3:%s, 4:%s, 5:%s",
                     Thread.currentThread(), size, capacity, head, buffer[head], tail, buffer[tail], buffer[0], buffer[1], buffer[2], buffer[3], buffer[4], buffer[5]));
             System.exit(1);
-            // TODO Investigate why it happens in perf test.. Should be only few orders at a time.
-//            throw new RuntimeException(String.format("%s | SingleThreadRingBuffer is empty. size: %s, capacity: %s",
-//                    Thread.currentThread(), size, capacity));
         }
 
         T item = (T) buffer[head];
         buffer[head] = null;
         head = (head + 1) % capacity;
         size--;
+        if (logEnabled) {
+            log.info("{} | poll. head: {}, tail: {}, size: {}, capacity: {}", name, head, tail, size, capacity);
+        }
         return item;
     }
 

@@ -130,15 +130,16 @@ public class FIXOrderGatewayClient extends MessageCracker implements OrderGatewa
     public void fromApp(Message message, SessionID sessionId) {
 //        log.info("Received App Message: {}", message.toString().replace('\u0001', '|'));
         try {
-            if (!MsgType.EXECUTION_REPORT.equals(message.getHeader().getString(MsgType.FIELD))) {
-                return;
+            String msgType = message.getHeader().getString(MsgType.FIELD);
+            if (MsgType.EXECUTION_REPORT.equals(msgType)
+                    || MsgType.ORDER_CANCEL_REJECT.equals(msgType)) {
+
+                OrderMessage orderMessage = orderMessageTradeEngineUpdate.getOrderMessage();
+
+                OrderMessageSerDe.toOrderMessage(message, orderMessage);
+
+                tradeEngineUpdates.offer(orderMessageTradeEngineUpdate);
             }
-            OrderMessage orderMessage = orderMessageTradeEngineUpdate.getOrderMessage();
-
-            OrderMessageSerDe.toOrderMessage(message, orderMessage);
-
-            tradeEngineUpdates.offer(orderMessageTradeEngineUpdate);
-
         } catch (Exception e) {
             log.error("Failed to parse ExecutionReport", e);
         }

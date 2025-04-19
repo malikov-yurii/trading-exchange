@@ -12,7 +12,7 @@ public class AppState {
     private final LeadershipManager leadershipManager;
 
     private State state = State.INITIALIZING;
-    private List<Runnable> onAppRecovered = new ArrayList<>();
+    private final List<Runnable> onAppRecovered = new ArrayList<>();
 
     public AppState(LeadershipManager leadershipManager) {
         this.leadershipManager = leadershipManager;

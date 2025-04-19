@@ -24,7 +24,7 @@ public class MarketDataSnapshotConsumer implements Runnable {
     @Override
     public void run() {
         log.info("MarketDataSnapshotConsumer starting");
-        aeronConsumer.stop();
+        aeronConsumer.run();
         log.info("MarketDataSnapshotConsumer shutting down");
     }
 
@@ -33,6 +33,7 @@ public class MarketDataSnapshotConsumer implements Runnable {
         if (log.isDebugEnabled()) {
             log.debug("Received {}", marketUpdate);
         }
+        log.info("Received {}", marketUpdate);
     }
 
     public void shutdown() {

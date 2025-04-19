@@ -9,6 +9,7 @@ import trading.api.MarketUpdateSerDe;
 import trading.common.LFQueue;
 import trading.common.Utils;
 import trading.exchange.AppState;
+import trading.exchange.LeadershipManager;
 
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -19,6 +20,7 @@ public class MarketDataPublisher {
     private final LFQueue<MarketUpdate> sequencedMarketUpdates;
     private final AeronPublisher aeronPublisher;
     private final AppState appState;
+    ;
     private final AtomicLong msgSeqNum = new AtomicLong();
     private final ExpandableDirectByteBuffer buffer = new ExpandableDirectByteBuffer(128);
 
@@ -38,25 +40,31 @@ public class MarketDataPublisher {
     }
 
     private void publish(MarketUpdate marketUpdate) {
-        if (marketUpdate == null) {
-            log.warn("Null MarketUpdate received");
-            return;
+        try {
+            if (marketUpdate == null) {
+                log.warn("Null MarketUpdate received");
+                return;
+            }
+
+            if (appState.isNotRecoveredLeader()) {
+                if (log.isDebugEnabled()) {
+                    log.debug("Not Publishing {}", marketUpdate);
+                }
+                return;
+            }
+
+            marketUpdate.setSeqNum(msgSeqNum.getAndIncrement());
+            this.sequencedMarketUpdates.offer(marketUpdate);
+
+            int offset = 0;
+            int length = MarketUpdateSerDe.serializeMarketUpdate(marketUpdate, buffer, offset);
+
+            aeronPublisher.publish(buffer, offset, length);
+
+            log.info("Published {}", marketUpdate);
+        } catch (Exception exception) {
+            log.error("onIncrementalUpdate", exception);
         }
-
-        if (appState.isNotRecoveredLeader()) {
-            log.debug("Not Publishing {}", marketUpdate);
-            return;
-        }
-
-        marketUpdate.setSeqNum(msgSeqNum.getAndIncrement());
-        this.sequencedMarketUpdates.offer(marketUpdate);
-
-        int offset = 0;
-        int length = MarketUpdateSerDe.serializeMarketUpdate(marketUpdate, buffer, offset);
-
-        aeronPublisher.publish(buffer, offset, length);
-
-        log.info("Published {}", marketUpdate);
     }
 
     public void close() {

@@ -1,6 +1,7 @@
 kafka-pojo-publisher
 
 target
+tmp
 */target/
 !.mvn/wrapper/maven-wrapper.jar
 */data/

@@ -107,27 +107,30 @@ public final class RequestSequencer implements Runnable {
     private void onAck(final long seq) {
         for (;;) {
             OrderRequest req = inFlight.poll();
-            if (req == null) {                       // no message yet
-                log.warn("ACK {} with empty in‑flight queue", seq);
+            if (req == null) {
+                log.info("onAck. Ack dup {}", seq);
+                if (log.isDebugEnabled()) {
+                    log.debug("onAck. Ack dup {}", seq);
+                }
                 return;
             }
 
             long msgSeq = req.getSeqNum();
-            if (msgSeq == seq) {                     // expected
+            if (msgSeq == seq) {
                 clientRequests.offer(req);
                 recycle(req);
                 return;
             }
 
-            if (msgSeq < seq) {                      // stale, already re‑sent
-                log.debug("Ack dup: {}", msgSeq);
+            if (msgSeq < seq) {
+                log.debug("Ack dup: {}, {}", msgSeq, req);
                 recycle(req);
                 continue;
             }
 
-            /* msgSeq > seq  → missing message (out‑of‑order ACK) */
+            /* Should not happen */
             log.error("ACK out of order: ack={} head={}", seq, msgSeq);
-            inFlight.offer(req);                     // push back & give up
+            inFlight.offer(req);
             return;
         }
     }

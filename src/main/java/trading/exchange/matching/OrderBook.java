@@ -49,6 +49,13 @@ public final class OrderBook {
     public void add(long clientId, long clientOrderId, long tickerId, Side side, long price, long qty) {
         long marketOrderId = generateNewMarketOrderId();
 
+        Order existing = clientOrdersMap.get(clientId, clientOrderId);
+        if (existing != null) {
+            orderMessage.set(OrderMessageType.REJECTED, clientId, tickerId, clientOrderId, marketOrderId, side, price, 0, qty);
+            matchingEngine.sendClientResponse(orderMessage);
+            return;
+        }
+
         orderMessage.set(OrderMessageType.ACCEPTED, clientId, tickerId, clientOrderId, marketOrderId, side, price, 0, qty);
         matchingEngine.sendClientResponse(orderMessage);
 
