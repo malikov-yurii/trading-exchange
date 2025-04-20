@@ -86,17 +86,18 @@ public class ExchangeApplication {
         sequencedMarketUpdates.init();
 
         matchingEngine.start();
-        try {
-            // todo check why does not work without it
-            Thread.sleep(2_000);
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        }
+//        try {
+//            // todo check why does not work without it
+//            Thread.sleep(2_000);
+//        } catch (InterruptedException e) {
+//            throw new RuntimeException(e);
+//        }
         orderServer.start();
         log.info("startExchange. Started.");
     }
 
     private synchronized void shutdownExchange() {
+        marketDataPublisher.close();
         snapshotPublisher.close();
         clientRequests.shutdown();
         clientResponses.shutdown();

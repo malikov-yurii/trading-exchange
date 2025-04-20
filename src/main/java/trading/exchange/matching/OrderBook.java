@@ -1,6 +1,5 @@
 package trading.exchange.matching;
 
-import org.agrona.concurrent.OneToOneConcurrentArrayQueue;
 import trading.common.Constants;
 import trading.api.MarketUpdate;
 import trading.api.MarketUpdateType;
@@ -51,7 +50,7 @@ public final class OrderBook {
 
         Order existing = clientOrdersMap.get(clientId, clientOrderId);
         if (existing != null) {
-            orderMessage.set(OrderMessageType.REJECTED, clientId, tickerId, clientOrderId, marketOrderId, side, price, 0, qty);
+            orderMessage.set(OrderMessageType.REQUEST_REJECT, clientId, tickerId, clientOrderId, marketOrderId, side, price, 0, qty);
             matchingEngine.sendClientResponse(orderMessage);
             return;
         }
@@ -64,7 +63,6 @@ public final class OrderBook {
         if (leavesQty > 0) {
             long priority = getNextPriority(price);
             Order order = orderPool.acquire();
-//            Order order = new Order();
             order.set(tickerId, clientId, clientOrderId, marketOrderId, side, price, leavesQty, priority, null, null);
             addOrder(order);
 
@@ -78,8 +76,7 @@ public final class OrderBook {
 
         if (order == null) {
             orderMessage.set(OrderMessageType.CANCEL_REJECTED, clientId, tickerId, clientOrderId,
-                    Constants.ORDER_ID_INVALID, Side.INVALID, Constants.PRICE_INVALID,
-                    Constants.QTY_INVALID, Constants.QTY_INVALID);
+                    Constants.ORDER_ID_INVALID, Side.INVALID, 0, 0, 0);
         } else {
             orderMessage.set(OrderMessageType.CANCELED, clientId, tickerId, clientOrderId,
                     order.getMarketOrderId(), order.getSide(), order.getPrice(), Constants.QTY_INVALID, order.getQty());

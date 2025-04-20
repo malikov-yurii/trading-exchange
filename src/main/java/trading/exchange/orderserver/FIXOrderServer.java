@@ -8,7 +8,6 @@ import quickfix.Acceptor;
 import quickfix.Application;
 import quickfix.ApplicationAdapter;
 import quickfix.Dictionary;
-import quickfix.FieldNotFound;
 import quickfix.FileStoreFactory;
 import quickfix.LogFactory;
 import quickfix.Message;
@@ -18,13 +17,13 @@ import quickfix.Session;
 import quickfix.SessionID;
 import quickfix.SessionSettings;
 import quickfix.ThreadedSocketAcceptor;
-import quickfix.UnsupportedMessageType;
 import trading.api.OrderMessage;
 import trading.api.OrderMessageSerDe;
 import trading.api.OrderRequest;
 import trading.api.OrderRequestSerDe;
 import trading.common.AsyncLogger;
 import trading.common.LFQueue;
+import trading.common.Utils;
 import trading.exchange.AppState;
 import trading.exchange.LeadershipManager;
 import trading.exchange.ReplayReplicationLogConsumer;
@@ -45,7 +44,7 @@ public class FIXOrderServer implements OrderServer {
     private final AppState appState;
 
     private ReplicationConsumer replicationConsumer;
-    private RequestSequencer requestSequencer;
+    private PrimaryRequestSequencer requestSequencer;
     private Thread requestSequencerThread;
 
     private final AtomicLong respSeqNum = new AtomicLong(1);
@@ -99,7 +98,6 @@ public class FIXOrderServer implements OrderServer {
             final String dynamicSenderCompID = switch (thisHost) {
                 case "exchange-1" -> "E1";
                 case "exchange-2" -> "E2";
-                case "exchange-3" -> "E3";
                 default -> throw new IllegalStateException("Unknown host: " + thisHost);
             };
 
@@ -177,7 +175,7 @@ public class FIXOrderServer implements OrderServer {
     }
 
     private synchronized void startRequestSequencer() {
-        requestSequencer = new RequestSequencer(clientRequests, seqNum, appState);
+        requestSequencer = new PrimaryRequestSequencer(clientRequests, seqNum, appState);
         requestSequencerThread = new Thread(requestSequencer, "RequestSequencerThread");
         requestSequencerThread.start();
     }
@@ -268,6 +266,8 @@ public class FIXOrderServer implements OrderServer {
                 if (log.isDebugEnabled()) {
                     log.debug("Parsed client request: {}", request);
                 }
+                log.info("{} Parsed client request: {}", Utils.getTestTag(request.getOrderId()), request);
+
 
                 long clientId = request.getClientId();
                 sessionsByClientId.computeIfAbsent(clientId, clId -> {

@@ -10,7 +10,7 @@ public enum OrderMessageType {
     CANCELED((byte) 2),
     FILLED((byte) 3),
     CANCEL_REJECTED((byte) 4),
-    REJECTED((byte) 5);
+    REQUEST_REJECT((byte) 5);
 
     private final byte value;
 

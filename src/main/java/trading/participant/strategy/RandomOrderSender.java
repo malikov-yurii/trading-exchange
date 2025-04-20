@@ -86,10 +86,10 @@ public class RandomOrderSender implements TradingAlgo {
                                 && (type == OrderMessageType.CANCELED || type == OrderMessageType.CANCEL_REJECTED)
                 ||
                         orderMessage.getClientOrderId() == newOrderRequest.getOrderId()
-                                && type == OrderMessageType.REJECTED
+                                && type == OrderMessageType.REQUEST_REJECT
                 ) {
 
-                    // Step 5.2: On Ack Cancel: Send New (loops to 5.3)
+                    // Step 5.2: Send New to start new cycle (loops to 5.2)
                     log.info("{} onOrderUpdate. Received {}: {}", getTestTag(orderMessage.getClientOrderId()), type, orderMessage);
                     sendNewOrder();
                 } else {
@@ -109,18 +109,29 @@ public class RandomOrderSender implements TradingAlgo {
 
     private void test5() {
         try {
-            currentTestId = 5;
-            int timeoutMs = 300;
-            int repeatIntervalMs = 2000;
-            scheduler.scheduleAtFixedRate(
-                    () -> {
-                        try {
+            test5_scheduleResendCheck();
+            synchronized (newOrderRequest) {
+                // Step 5.1: Initial New Order Request. Later requests are generated on exchange response
+                sendNewOrder();
+            }
+        } catch (Exception e) {
+            log.error("Error in RandomOrderSender", e);
+        }
+    }
+
+    private void test5_scheduleResendCheck() {
+        int timeoutMs = 300;
+        int repeatIntervalMs = 2000;
+        scheduler.scheduleAtFixedRate(
+                () -> {
+                    try {
+                        synchronized (newOrderRequest) {
                             OrderRequest last = lastRequest.get().request;
                             if (last == null) {
                                 log.info("Last == NULL");
                                 return;
                             }
-                            log.info("{} CheckAge. lastRequest.get(): {}", Utils.getTestTag(last.getOrderId()), lastRequest.get());
+                            log.info("{} CheckAge: {}", Utils.getTestTag(last.getOrderId()), lastRequest.get());
                             long age = Duration.between(lastRequest.get().sent, LocalDateTime.now()).toMillis();
                             if (age > timeoutMs) {
                                 if (last == newOrderRequest) {
@@ -133,22 +144,15 @@ public class RandomOrderSender implements TradingAlgo {
                                     log.error("{} CheckAge. Resend. Failed.", Utils.getTestTag(last.getOrderId()));
                                 }
                             }
-                        } catch (Exception exception) {
-                            log.error("CheckAge failed", exception);
                         }
-                    },
-                    5000, // initial delay
-                    repeatIntervalMs, // repeat interval
-                    TimeUnit.MILLISECONDS
-            );
-
-            synchronized (newOrderRequest) {
-                // Step 5.1: New Order
-                sendNewOrder();
-            }
-        } catch (Exception e) {
-            log.error("Error in RandomOrderSender", e);
-        }
+                    } catch (Exception exception) {
+                        log.error("CheckAge failed", exception);
+                    }
+                },
+                5000, // initial delay
+                repeatIntervalMs, // repeat interval
+                TimeUnit.MILLISECONDS
+        );
     }
 
     private void test4() {
@@ -176,10 +180,19 @@ public class RandomOrderSender implements TradingAlgo {
     public void init() {
         isRunning = true;
         new Thread(() -> {
-//            test4();
-            test5();
-            log.info("-------------------------------> TEST{} DONE <------------------------------ last order id {}",
-                    currentTestId, nextOrderId.get() - 1);
+            try {
+                currentTestId = Integer.parseInt(env("TEST_ID", null));
+                log.info("TEST_ID: {}", currentTestId);
+                switch (currentTestId) {
+                    case 4 -> test4();
+                    case 5 -> test5();
+                    default -> throw new RuntimeException("test not supported :" + currentTestId);
+                }
+                log.info("-------------------------------> TEST{} DONE <------------------------------ last order id {}",
+                        currentTestId, nextOrderId.get() - 1);
+            } catch (Exception ex) {
+                log.error("init. Failed. TEST_ID: " + currentTestId, ex);
+            }
         }).start();
     }
 

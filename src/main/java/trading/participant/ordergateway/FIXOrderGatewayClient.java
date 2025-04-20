@@ -132,7 +132,8 @@ public class FIXOrderGatewayClient extends MessageCracker implements OrderGatewa
         try {
             String msgType = message.getHeader().getString(MsgType.FIELD);
             if (MsgType.EXECUTION_REPORT.equals(msgType)
-                    || MsgType.ORDER_CANCEL_REJECT.equals(msgType)) {
+                    || MsgType.ORDER_CANCEL_REJECT.equals(msgType)
+                    || MsgType.REJECT.equals(msgType)) {
 
                 OrderMessage orderMessage = orderMessageTradeEngineUpdate.getOrderMessage();
 

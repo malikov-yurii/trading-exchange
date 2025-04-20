@@ -1,24 +1,3 @@
-x-common-env: &common-env
-  MD_PORT: 40456
-  MD_SNAPSHOT_PORT: 40457
-  REPLICATION_PORT: 40552
-  REPLICATION_STREAM: 3002
-  REPLICATION_ACK_PORT: 40551
-  REPLICATION_ACK_STREAM: 3001
-  WS_IP: 0.0.0.0
-  AERON_DIR: /dev/shm/aeron-root/dir
-  ZOO_HOST: zookeeper
-  ZOO_PORT_NUMBER: 2181
-  ARCHIVEHOST: archive-host
-  CONTROLPORT: 17000
-  EVENTSPORT: 17001
-  WS_PORT: 8090
-  DISRUPTOR_WAIT_STRATEGY: SLEEPING_WAIT
-  #DISRUPTOR_WAIT_STRATEGY: YIELDING_WAIT
-  #DISRUPTOR_WAIT_STRATEGY: BUSY_SPIN
-  #DISRUPTOR_SIZE_POWER_OF_2: 8 (9.5s)
-  DISRUPTOR_SIZE_POWER_OF_2: 10
-
 services:
 
   trader-r:
@@ -27,18 +6,18 @@ services:
     build:
       context: .
     entrypoint: /root/bin/trader_entrypoint.sh
+    env_file:
+      - .env
     environment:
       CLIENT_ID: 1
       ALGO_TYPE: RANDOM
       ORDER_SERVER_HOSTS: exchange-1,exchange-2,exchange-3
       THISHOST: "trader-r"
-#      t1 t4
-#      SLEEP_TIME_MS: 60_000
-#      SLEEP_ORDER_ID: 2_400_000
-#      ORDER_NUM: 2_600_500
-      # t2 t3:
-      ORDER_NUM: 10
-      <<: *common-env
+      SLEEP_TIME_MS: ${SLEEP_TIME_MS}
+      ORDER_NUM: ${ORDER_NUM}
+      SLEEP_ORDER_ID: ${SLEEP_ORDER_ID}
+      TEST_ID: ${TEST_ID}
+      JAVA_TOOL_OPTIONS: ${TRADER_JAVA_TOOL_OPTIONS}
     hostname: trader-r
     volumes:
       - aeron-dir:/dev/shm/aeron-root
@@ -55,19 +34,12 @@ services:
     build:
       context: .
     entrypoint: /root/bin/exchange_entrypoint.sh
+    env_file:
+      - .env
     environment:
       INSTANCE_ID: "1"
       THISHOST: "exchange-1"
-      JAVA_TOOL_OPTIONS: >
-        -Dlogback.configurationFile=/root/jar/logback.xml
-        -XX:+TieredCompilation
-        -XX:TieredStopAtLevel=4
-        -XX:+AlwaysPreTouch
-        -XX:+UseNUMA
-        -XX:+UseStringDeduplication
-        -Xms3G
-        -Xmx10G
-      <<: *common-env
+      JAVA_TOOL_OPTIONS: ${EXCHANGE_JAVA_TOOL_OPTIONS}
     hostname: exchange-1
     volumes:
       - aeron-dir:/dev/shm/aeron-root
@@ -84,19 +56,12 @@ services:
     build:
       context: .
     entrypoint: /root/bin/exchange_entrypoint.sh
+    env_file:
+      - .env
     environment:
       INSTANCE_ID: "2"
       THISHOST: "exchange-2"
-      JAVA_TOOL_OPTIONS: >
-        -Dlogback.configurationFile=/root/jar/logback.xml
-        -XX:+TieredCompilation
-        -XX:TieredStopAtLevel=4
-        -XX:+AlwaysPreTouch
-        -XX:+UseNUMA
-        -XX:+UseStringDeduplication
-        -Xms2G
-        -Xmx4G
-      <<: *common-env
+      JAVA_TOOL_OPTIONS: ${EXCHANGE_JAVA_TOOL_OPTIONS}
     hostname: exchange-2
     volumes:
       - aeron-dir:/dev/shm/aeron-root
@@ -114,19 +79,12 @@ services:
     build:
       context: .
     entrypoint: /root/bin/exchange_entrypoint.sh
+    env_file:
+      - .env
     environment:
       INSTANCE_ID: "3"
       THISHOST: "exchange-3"
-      JAVA_TOOL_OPTIONS: >
-        -Dlogback.configurationFile=/root/jar/logback.xml
-        -XX:+TieredCompilation
-        -XX:TieredStopAtLevel=4
-        -XX:+AlwaysPreTouch
-        -XX:+UseNUMA
-        -XX:+UseStringDeduplication
-        -Xms3G
-        -Xmx10G
-      <<: *common-env
+      JAVA_TOOL_OPTIONS: ${EXCHANGE_JAVA_TOOL_OPTIONS}
     hostname: exchange-3
     volumes:
       - aeron-dir:/dev/shm/aeron-root
@@ -144,9 +102,10 @@ services:
     build:
       context: .
     entrypoint: /root/bin/archive_host_entrypoint.sh
+    env_file:
+      - .env
     environment:
       DELETE_AERON_DIR: true
-      <<: *common-env
     hostname: archive-host
     volumes:
       - aeron-dir:/dev/shm/aeron-root
@@ -161,7 +120,6 @@ services:
     environment:
       - ALLOW_ANONYMOUS_LOGIN=yes
       - ZOO_STANDALONE_ENABLED=true
-      - ZOO_PORT_NUMBER=2181
       - ZOO_SERVER_ID=1
       - ZOO_ADVERTISED_HOSTNAME=zookeeper
     volumes:

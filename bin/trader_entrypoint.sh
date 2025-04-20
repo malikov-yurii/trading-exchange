@@ -6,7 +6,6 @@ java  \
   --add-opens=java.base/jdk.internal.misc=ALL-UNNAMED  \
   --add-opens=java.base/java.util.zip=ALL-UNNAMED  \
   -Djava.net.preferIPv4Stack=true  \
-  -Dorg.glassfish.tyrus.container.grizzly.server.GrizzlyServerContainer.DEBUG=true \
   -cp /root/jar/app.jar trading.participant.ParticipantApplication
 
 #    entrypoint: ["/bin/sh", "-c", "sleep 10 && java --add-opens=java.base/sun.nio.ch=ALL-UNNAMED -Daeron.dir=/aeron/vol/driver -cp /app/trading.jar trading.participant.ParticipantApplication"]

@@ -7,6 +7,7 @@ import trading.api.OrderMessage;
 import trading.common.LFQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import trading.common.Utils;
 
 import java.util.Arrays;
 
@@ -67,6 +68,7 @@ public final class MatchingEngine {
         if (log.isDebugEnabled()) {
             log.debug("Sending {}", response);
         }
+        log.info("{} Sending {}", Utils.getTestTag(response.getClientOrderId()), response);
         outgoingResponses.offer(response);
     }
 
