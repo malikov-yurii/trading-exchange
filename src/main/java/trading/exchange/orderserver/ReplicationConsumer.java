@@ -1,6 +1,7 @@
 package trading.exchange.orderserver;
 
 import aeron.AeronPublisher;
+import aeron.AeronUtils;
 import aeron.ArchiveConsumerAgent;
 import io.aeron.logbuffer.FragmentHandler;
 import lombok.Getter;
@@ -39,7 +40,7 @@ public class ReplicationConsumer implements Runnable {
         String aeronIp = Utils.env("AERON_IP", "224.0.1.1");
 
         this.replicationAckPublisher = new AeronPublisher(
-                aeronUdpChannel(aeronIp, Utils.env("REPLICATION_ACK_PORT", "40552")),
+                AeronUtils.aeronUdpChannel(aeronIp, Utils.env("REPLICATION_ACK_PORT", "40552")),
                 Integer.parseInt(Utils.env("REPLICATION_ACK_STREAM", "3002")),
                 "REPLICATION_ACK");
 
@@ -57,10 +58,6 @@ public class ReplicationConsumer implements Runnable {
 
         seqNumBuffer.putLong(0, orderRequest.getSeqNum());
         replicationAckPublisher.publish(seqNumBuffer, 0, Long.BYTES);
-    }
-
-    private static String aeronUdpChannel(String aeronIp, String replicationPort) {
-        return "aeron:udp?endpoint=" + aeronIp + ":" + replicationPort;
     }
 
     public void shutdown() {

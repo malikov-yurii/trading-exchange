@@ -26,6 +26,8 @@ import trading.common.AsyncLogger;
 import trading.common.LFQueue;
 import trading.participant.strategy.TradeEngineUpdate;
 
+import java.util.concurrent.atomic.AtomicReference;
+
 
 public class FIXOrderGatewayClient extends MessageCracker implements OrderGatewayClient, Application {
     private static final Logger log = LoggerFactory.getLogger(FIXOrderGatewayClient.class);
@@ -33,11 +35,10 @@ public class FIXOrderGatewayClient extends MessageCracker implements OrderGatewa
     public static final int SLEEP_MILLIS = 250;
 
     private final LFQueue<TradeEngineUpdate> tradeEngineUpdates;
-    private volatile Session session;
+    private final AtomicReference<Session> activeSession = new AtomicReference<>();
     private Initiator initiator;
-    //    private final ObjectPool<TradeEngineUpdate> tradeEngineUpdatePool =
-//            new ObjectPool<>(100_000, TradeEngineUpdate::new, OneToOneConcurrentArrayQueue::new);
-    private final TradeEngineUpdate orderMessageTradeEngineUpdate = new TradeEngineUpdate(TradeEngineUpdate.Type.ORDER_MESSAGE);
+    private final ThreadLocal<TradeEngineUpdate> tradeEngineUpdateThreadLocal =
+            ThreadLocal.withInitial(() -> new TradeEngineUpdate(TradeEngineUpdate.Type.ORDER_MESSAGE));
 
     private final Message fixMessage = new Message();
 
@@ -93,16 +94,16 @@ public class FIXOrderGatewayClient extends MessageCracker implements OrderGatewa
 
     private Session getActiveSession() {
         while (true) {
-            Session session = this.session;
+            Session session = this.activeSession.get();
             if (session == null) {
-                log.warn("No sessionID set yet. Waiting {}ms", SLEEP_MILLIS);
+                log.warn("No activeSession set yet. Waiting {}ms", SLEEP_MILLIS);
             } else if (session.isLoggedOn()) {
                 if (log.isDebugEnabled()) {
-                    log.debug("FIX session is ready: {}", this.session);
+                    log.debug("FIX session is ready: {}", this.activeSession);
                 }
                 return session;
             } else {
-                log.warn("Session not logged on yet: {}. Waiting {}ms", this.session, SLEEP_MILLIS);
+                log.warn("Session not logged on yet: {}. Waiting {}ms", this.activeSession, SLEEP_MILLIS);
             }
 
             try {
@@ -128,18 +129,20 @@ public class FIXOrderGatewayClient extends MessageCracker implements OrderGatewa
 
     @Override
     public void fromApp(Message message, SessionID sessionId) {
-//        log.info("Received App Message: {}", message.toString().replace('\u0001', '|'));
+//        String fixMsg = message.toString().replace('\u0001', '|');
+//        log.info("Received App Message: {}", fixMsg);
         try {
             String msgType = message.getHeader().getString(MsgType.FIELD);
             if (MsgType.EXECUTION_REPORT.equals(msgType)
-                    || MsgType.ORDER_CANCEL_REJECT.equals(msgType)
-                    || MsgType.REJECT.equals(msgType)) {
+                    || MsgType.ORDER_CANCEL_REJECT.equals(msgType)) {
 
-                OrderMessage orderMessage = orderMessageTradeEngineUpdate.getOrderMessage();
+                TradeEngineUpdate tradeEngineUpdate = tradeEngineUpdateThreadLocal.get();
+                OrderMessage orderMessage = tradeEngineUpdate.getOrderMessage();
 
                 OrderMessageSerDe.toOrderMessage(message, orderMessage);
+//                log.info("Received orderMessage: {}. FIX: {}", orderMessage, fixMsg);
 
-                tradeEngineUpdates.offer(orderMessageTradeEngineUpdate);
+                tradeEngineUpdates.offer(tradeEngineUpdate);
             }
         } catch (Exception e) {
             log.error("Failed to parse ExecutionReport", e);
@@ -154,44 +157,76 @@ public class FIXOrderGatewayClient extends MessageCracker implements OrderGatewa
     @Override
     public void onLogon(SessionID sessionId) {
         try {
+            log.info("Logon: {}", sessionId);
             Session session = Session.lookupSession(sessionId);
+            if (session == null) {
+                log.error("onLogon. session is NULL");
+                return;
+            }
             log.info("Logon successful: {}. {}", sessionId, session);
-            this.session = session;
+
+            if (isPrimary(sessionId)) {
+                Session prevSession = this.activeSession.getAndSet(session);
+                log.info("onLogon. Updated activeSession from [{}] to PRIMARY SessionID: [{}]",
+                        prevSession, session.getSessionID());
+            }
+
+            boolean wasUpdated = this.activeSession.compareAndSet(null, session);
+            if (wasUpdated) {
+                log.info("onLogon. Updated activeSession from NULL to SessionID: {}", session.getSessionID());
+            }
+            //TODO Client must send his client id on logon to cover edge cases: e.g. when requests are published to another instance
         } catch (Exception e) {
             log.error("Failed to logon to FIX session: " + sessionId, e);
         }
     }
 
+    private boolean isPrimary(SessionID sessionId) {
+        return "E1".equals(sessionId.getTargetCompID());
+    }
+
     @Override
     public void onLogout(SessionID sessionId) {
-        log.info("Logout: {}. this.sessionID: {}", sessionId, this.session);
+        Session ses = this.activeSession.get();
 
-        // if we lost the active one, switch to the other
-        if (sessionId.equals(this.session.getSessionID())) {
-            this.session = null;
-//            log.info("Attempting failover to backup session...");
-//            for (SessionID sid : initiator.getSessions()) {
-//                log.info("Available session: {}", sid);
-//            }
-//
-//            for (SessionID sid : initiator.getSessions()) {
-//                if (!sid.equals(sessionId)) {
-//                    Session session = Session.lookupSession(sid);
-//                    if (session != null) {
-//                        log.info("Found backup session: {}", sid);
-//                        // This session will reconnect automatically via the Initiator
-//                        // Wait until it logs on
-//                        waitForSessionReady(sid);
-//                        this.sessionID = sid;
-//                        break;
-//                    }
-//                }
-//            }
+        log.info("onLogout: {}. this.sessionID: {}", sessionId, ses);
+
+        if (ses == null || sessionId.equals(ses.getSessionID())) {
+
+            boolean wasUpdated = this.activeSession.compareAndSet(ses, null);
+            if (wasUpdated) {
+                log.info("onLogout. Updated activeSession from {} to NULL", ses);
+            } else {
+                log.info("onLogout. Not Updated activeSession from {} to NULL. Current {}", ses, this.activeSession);
+                return;
+            }
+
+            log.info("Attempting failover to backup session...");
+            for (SessionID sid : initiator.getSessions()) {
+                if (!sid.equals(sessionId)) {
+                    log.info("Available session: {}", sid);
+                    Session session = Session.lookupSession(sid);
+                    if (session != null) {
+                        log.info("Found backup session: {}", sid);
+                        // This session will reconnect automatically via the Initiator
+                        // Wait until it logs on
+                        waitForSessionReady(sid);
+                        wasUpdated = this.activeSession.compareAndSet(null, session);
+                        if (wasUpdated) {
+                            log.info("Failed over to {}", session);
+                        } else {
+                            log.info("Not Failed over to {}. Current this.activeSession: {}", session,
+                                    this.activeSession.get());
+                        }
+                        break;
+                    }
+                }
+            }
+            log.info("Failed failover to backup session...");
         }
     }
 
     private void waitForSessionReady(SessionID sid) {
-        int sleepMillis = 100;
         while (!Thread.currentThread().isInterrupted()) {
             Session session = Session.lookupSession(sid);
             if (session != null && session.isLoggedOn()) {
@@ -200,7 +235,7 @@ public class FIXOrderGatewayClient extends MessageCracker implements OrderGatewa
             }
             try {
                 log.info("Waiting for backup FIX session {} to be ready...", sid);
-                Thread.sleep(sleepMillis);
+                Thread.sleep(100);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
@@ -214,6 +249,25 @@ public class FIXOrderGatewayClient extends MessageCracker implements OrderGatewa
 
     @Override
     public void fromAdmin(Message message, SessionID sessionId) {
+//        String fixMsg = message.toString().replace('\u0001', '|');
+//        log.info("fromAdmin. Received App Message: {}", fixMsg);
+        try {
+            String msgType = message.getHeader().getString(MsgType.FIELD);
+            if (MsgType.EXECUTION_REPORT.equals(msgType)
+                    || MsgType.ORDER_CANCEL_REJECT.equals(msgType)
+                    || MsgType.REJECT.equals(msgType)) {
+
+                TradeEngineUpdate tradeEngineUpdate = tradeEngineUpdateThreadLocal.get();
+                OrderMessage orderMessage = tradeEngineUpdate.getOrderMessage();
+
+                OrderMessageSerDe.toOrderMessage(message, orderMessage);
+//                log.info("fromAdmin. Received orderMessage: {}. FIX: {}", orderMessage, fixMsg);
+
+                tradeEngineUpdates.offer(tradeEngineUpdate);
+            }
+        } catch (Exception e) {
+            log.error("fromAdmin. Failed to parse ExecutionReport", e);
+        }
     }
 
     @Override

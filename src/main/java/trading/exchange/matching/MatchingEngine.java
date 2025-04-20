@@ -68,7 +68,7 @@ public final class MatchingEngine {
         if (log.isDebugEnabled()) {
             log.debug("Sending {}", response);
         }
-        log.info("{} Sending {}", Utils.getTestTag(response.getClientOrderId()), response);
+//        log.info("{} Sending {}", Utils.getTestTag(response.getClientOrderId()), response);
         outgoingResponses.offer(response);
     }
 

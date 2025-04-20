@@ -75,6 +75,8 @@ public class RandomOrderSender implements TradingAlgo {
     public void onOrderUpdate(OrderMessage orderMessage) {
         if (currentTestId == 5) {
             synchronized (newOrderRequest) {
+                log.info("{} Trace. onOrderUpdate. {}, newOrderRequest.getOrderId():{}, cancelOrderRequest.getOrderId():{}",
+                        getTestTag(orderMessage.getClientOrderId()), orderMessage, newOrderRequest.getOrderId(), cancelOrderRequest.getOrderId());
                 OrderMessageType type = orderMessage.getType();
                 if (orderMessage.getClientOrderId() == newOrderRequest.getOrderId()
                         && type == OrderMessageType.ACCEPTED) {
@@ -90,7 +92,7 @@ public class RandomOrderSender implements TradingAlgo {
                 ) {
 
                     // Step 5.2: Send New to start new cycle (loops to 5.2)
-                    log.info("{} onOrderUpdate. Received {}: {}", getTestTag(orderMessage.getClientOrderId()), type, orderMessage);
+                    log.info("{} onOrderUpdate. Received Nack {}: {}", getTestTag(orderMessage.getClientOrderId()), type, orderMessage);
                     sendNewOrder();
                 } else {
                     log.error("onOrderUpdate. Unexpected {}", orderMessage);
@@ -110,6 +112,7 @@ public class RandomOrderSender implements TradingAlgo {
     private void test5() {
         try {
             test5_scheduleResendCheck();
+            Thread.sleep(10_000);
             synchronized (newOrderRequest) {
                 // Step 5.1: Initial New Order Request. Later requests are generated on exchange response
                 sendNewOrder();
@@ -121,18 +124,22 @@ public class RandomOrderSender implements TradingAlgo {
 
     private void test5_scheduleResendCheck() {
         int timeoutMs = 300;
-        int repeatIntervalMs = 2000;
+        int repeatIntervalMs = 500;
         scheduler.scheduleAtFixedRate(
                 () -> {
                     try {
                         synchronized (newOrderRequest) {
-                            OrderRequest last = lastRequest.get().request;
+                            TestRequest testRequest = lastRequest.get();
+                            if (testRequest == null) {
+                                return;
+                            }
+                            OrderRequest last = testRequest.request;
                             if (last == null) {
                                 log.info("Last == NULL");
                                 return;
                             }
-                            log.info("{} CheckAge: {}", Utils.getTestTag(last.getOrderId()), lastRequest.get());
-                            long age = Duration.between(lastRequest.get().sent, LocalDateTime.now()).toMillis();
+                            log.info("{} CheckAge: {}", Utils.getTestTag(last.getOrderId()), testRequest);
+                            long age = Duration.between(testRequest.sent, LocalDateTime.now()).toMillis();
                             if (age > timeoutMs) {
                                 if (last == newOrderRequest) {
                                     log.info("{} CheckAge. Resend. Age: {}ms. NewOrderRequest {}", Utils.getTestTag(last.getOrderId()), age, last);

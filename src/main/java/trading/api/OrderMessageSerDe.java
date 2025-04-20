@@ -57,8 +57,8 @@ public class OrderMessageSerDe {
         if (msgType != '3') {
             msg.setChar(150, execType); // ExecType
             msg.setChar(39, ordStatus); // OrdStatus
-            msg.setString(11, Long.toString(orderMessage.getClientOrderId())); // ClOrdID
         }
+        msg.setString(11, Long.toString(orderMessage.getClientOrderId())); // ClOrdID
 
         msg.setString(55, Long.toString(orderMessage.getTickerId()));      // Symbol
         msg.setChar(54, orderMessage.getSide() == Side.BUY ? '1' : '2');   // Side
@@ -82,9 +82,10 @@ public class OrderMessageSerDe {
     public static void toOrderMessage(Message message, OrderMessage orderMessage) throws FieldNotFound {
         orderMessage.setType(getOrderMessageType(message));
 
-        long clientOrderId = orderMessage.getType() == OrderMessageType.REQUEST_REJECT
-                ? Long.parseLong(message.getString(45))
-                : Long.parseLong(message.getString(ClOrdID.FIELD));
+//        long clientOrderId = orderMessage.getType() == OrderMessageType.REQUEST_REJECT
+//                ? Long.parseLong(message.getString(45))
+//                : Long.parseLong(message.getString(ClOrdID.FIELD));
+        long clientOrderId = Long.parseLong(message.getString(ClOrdID.FIELD));
         orderMessage.setClientOrderId(clientOrderId);
         orderMessage.setMarketOrderId(message.isSetField(OrderID.FIELD)
                 ? Long.parseLong(message.getString(OrderID.FIELD)) : 0);

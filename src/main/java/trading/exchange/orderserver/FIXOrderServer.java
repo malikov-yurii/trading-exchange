@@ -1,7 +1,11 @@
 package trading.exchange.orderserver;
 
+import aeron.AeronPublisher;
+import aeron.AeronUtils;
 import fix.PipeDelimitedScreenLogFactory;
 import fix.ReusableMessageFactory;
+import org.agrona.ExpandableDirectByteBuffer;
+import org.agrona.MutableDirectBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import quickfix.Acceptor;
@@ -22,17 +26,22 @@ import trading.api.OrderMessageSerDe;
 import trading.api.OrderRequest;
 import trading.api.OrderRequestSerDe;
 import trading.common.AsyncLogger;
+import trading.common.Constants;
 import trading.common.LFQueue;
 import trading.common.Utils;
 import trading.exchange.AppState;
 import trading.exchange.LeadershipManager;
 import trading.exchange.ReplayReplicationLogConsumer;
 
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+
+import static aeron.AeronUtils.aeronIp;
+import static trading.common.Utils.env;
 
 public class FIXOrderServer implements OrderServer {
 
@@ -44,12 +53,15 @@ public class FIXOrderServer implements OrderServer {
     private final AppState appState;
 
     private ReplicationConsumer replicationConsumer;
-    private PrimaryRequestSequencer requestSequencer;
-    private Thread requestSequencerThread;
+    private AbstractRequestSequencer requestSequencer;
 
     private final AtomicLong respSeqNum = new AtomicLong(1);
-    private final Map<Long, SessionHolder> sessionsByClientId = new ConcurrentHashMap<>();
-    record SessionHolder(SessionID sessionId, long clientId, Message reusableOutMessage) {}
+    private final String[] targetCompIdByClientId = new String[Constants.ME_MAX_NUM_CLIENTS];
+    private final Map<String, SessionHolder> sessionsByTargetCompId = new ConcurrentHashMap<>();
+
+    private final AeronPublisher ingressPublisher;
+
+    record SessionHolder(SessionID sessionId, long clientId, Message reusableOutMessage, MutableDirectBuffer buf) {}
 
     private long seqNum;
     private Acceptor acceptor;
@@ -60,16 +72,27 @@ public class FIXOrderServer implements OrderServer {
                           LeadershipManager leadershipManager,
                           AppState appState,
                           AsyncLogger asyncLogger) {
+
+        //todo: must be configurable to support multiple participants
+        Arrays.fill(targetCompIdByClientId, "C1");
+
         this.asyncLogger = asyncLogger;
         this.clientRequests = clientRequests;
         this.clientResponses = clientResponses;
         this.leadershipManager = leadershipManager;
         this.appState = appState;
         this.clientResponses.subscribe(this::processResponse);
+
+        this.ingressPublisher = new AeronPublisher(
+                AeronUtils.aeronUdpChannel(aeronIp(), env("INGRESS_PORT", "40553")),
+                Integer.parseInt(env("INGRESS_STREAM", "3003")),
+                "INGRESS");
     }
 
     @Override
     public synchronized void start() {
+        startFIXAcceptor();
+
         leadershipManager.onLeadershipAcquired(() -> {
             boolean wasRunning = stopReplicationConsumer();
             if (!wasRunning) {
@@ -81,11 +104,9 @@ public class FIXOrderServer implements OrderServer {
             }
             appState.setRecovered();
             startRequestSequencer();
-            startFIXAcceptor();
         });
 
         leadershipManager.onLeadershipLost(() -> {
-            stopFIXAcceptor();
             stopRequestSequencer();
             startReplicationConsumer();
         });
@@ -98,6 +119,7 @@ public class FIXOrderServer implements OrderServer {
             final String dynamicSenderCompID = switch (thisHost) {
                 case "exchange-1" -> "E1";
                 case "exchange-2" -> "E2";
+                case "exchange-3" -> "E3";
                 default -> throw new IllegalStateException("Unknown host: " + thisHost);
             };
 
@@ -175,29 +197,20 @@ public class FIXOrderServer implements OrderServer {
     }
 
     private synchronized void startRequestSequencer() {
-        requestSequencer = new PrimaryRequestSequencer(clientRequests, seqNum, appState);
-        requestSequencerThread = new Thread(requestSequencer, "RequestSequencerThread");
-        requestSequencerThread.start();
+        requestSequencer = appState.isPrimaryInstance()
+                ? new PrimaryRequestSequencer(clientRequests, seqNum)
+                : new BackupRequestSequencer(clientRequests, seqNum);
+        requestSequencer.start();
     }
 
     private synchronized void stopRequestSequencer() {
         if (requestSequencer != null) {
             requestSequencer.shutdown();
+            requestSequencer = null;
         }
-        if (requestSequencerThread != null && requestSequencerThread.isAlive()) {
-            requestSequencerThread.interrupt();
-            try {
-                requestSequencerThread.join(2000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
-        requestSequencerThread = null;
-        requestSequencer = null;
     }
 
     private void processResponse(OrderMessage orderMessage) {
-        SessionHolder sessionHolder = null;
         try {
             if (appState.isNotRecoveredLeader()) {
                 if (log.isDebugEnabled()) {
@@ -216,8 +229,8 @@ public class FIXOrderServer implements OrderServer {
             long seq = respSeqNum.getAndIncrement();
             orderMessage.setSeqNum(seq);
 
-            Long clientId = orderMessage.getClientId();
-            sessionHolder = sessionsByClientId.get(clientId);
+            long clientId = orderMessage.getClientId();
+            SessionHolder sessionHolder = getSessionHolder(clientId, null);
             SessionID sessionId = sessionHolder.sessionId;
             if (sessionId == null) {
                 log.warn("No session for clientId={}", clientId);
@@ -235,6 +248,40 @@ public class FIXOrderServer implements OrderServer {
         } catch (Exception e) {
             log.error("Failed to send FIX OrderMessage, " + orderMessage + " sessionHolder", e);
         }
+    }
+
+    private SessionHolder getSessionHolder(long clientId, SessionID sessionId) {
+        String targetCompId = targetCompIdByClientId[(int) clientId];
+        SessionHolder sessionHolder;
+        do {
+            sessionHolder = sessionsByTargetCompId.computeIfAbsent(targetCompId, compId -> {
+                SessionID sid = sessionId;
+                if (sid == null) {
+                    for (SessionID id : acceptor.getSessions()) {
+                        if (id.getTargetCompID().equals(compId)) {
+                            sid = id;
+                            break;
+                        }
+                    }
+                }
+
+                if (sid != null) {
+                    log.info("Registering SessionID: [{}] to ClientId: [{}]", sid, clientId);
+                    return new SessionHolder(sid, clientId, new Message(), new ExpandableDirectByteBuffer(128));
+                }
+                log.error("Could not find session for TargetComID: {}", compId);
+                return null;
+            });
+            if (sessionHolder == null) {
+                log.warn("Waiting for active session for clientId: {}", clientId);
+                try {
+                    Thread.sleep(250);
+                } catch (InterruptedException e) {
+                }
+            }
+        } while (sessionHolder == null);
+
+        return sessionHolder;
     }
 
     public synchronized void shutdown() {
@@ -260,7 +307,6 @@ public class FIXOrderServer implements OrderServer {
                 log.debug("Received App Message: " + message.toString().replace('\u0001', '|'));
             }
             try {
-
                 OrderRequest request = OrderRequestSerDe.getOrderRequest(message);
 
                 if (log.isDebugEnabled()) {
@@ -268,19 +314,10 @@ public class FIXOrderServer implements OrderServer {
                 }
                 log.info("{} Parsed client request: {}", Utils.getTestTag(request.getOrderId()), request);
 
+                SessionHolder session = getSessionHolder(request.getClientId(), sessionId);
 
-                long clientId = request.getClientId();
-                sessionsByClientId.computeIfAbsent(clientId, clId -> {
-                    log.info("Client ID {} registered for session {}", clientId, sessionId);
-                    return new SessionHolder(sessionId, clientId, new Message());
-                });
-
-
-                if (requestSequencer != null) {
-                    requestSequencer.process(request);
-                } else {
-                    log.warn("RequestSequencer not active, ignoring request from clientId={}", request);
-                }
+                int len = OrderRequestSerDe.serialize(request, session.buf, 0);
+                ingressPublisher.publish(session.buf, 0, len);
 
             } catch (Exception e) {
                 log.error("fromApp. Failed " + message + " + " + sessionId, e);

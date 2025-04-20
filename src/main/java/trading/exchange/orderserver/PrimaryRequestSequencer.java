@@ -3,25 +3,18 @@ package trading.exchange.orderserver;
 import aeron.AeronConsumer;
 import aeron.ArchivePublisher;
 import io.aeron.logbuffer.FragmentHandler;
-import org.agrona.ExpandableDirectByteBuffer;
 import org.agrona.concurrent.OneToOneConcurrentArrayQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trading.api.OrderRequest;
-import trading.api.OrderRequestSerDe;
 import trading.common.LFQueue;
 import trading.common.Utils;
-import trading.exchange.AppState;
 
-import java.util.concurrent.atomic.AtomicLong;
-
-public final class PrimaryRequestSequencer implements Runnable {
+public final class PrimaryRequestSequencer extends AbstractRequestSequencer {
     private static final Logger log = LoggerFactory.getLogger(PrimaryRequestSequencer.class);
 
     private static final int POOL_CAPACITY = 1 << 22;        // 4M
 
-    private final LFQueue<OrderRequest> clientRequests;
-    private final ArchivePublisher replicationPublisher;
     private final AeronConsumer replicationAckConsumer;
 
     private final OneToOneConcurrentArrayQueue<OrderRequest> freePool =
@@ -30,37 +23,23 @@ public final class PrimaryRequestSequencer implements Runnable {
     private final OneToOneConcurrentArrayQueue<OrderRequest> inFlight =
             new OneToOneConcurrentArrayQueue<>(POOL_CAPACITY);
 
-    private final AtomicLong nextSeq;
-
-    private static final ThreadLocal<ExpandableDirectByteBuffer> BUF =
-            ThreadLocal.withInitial(() -> new ExpandableDirectByteBuffer(128));
-
-    public PrimaryRequestSequencer(LFQueue<OrderRequest> clientRequests,
-                                   long lastSeqNum,
-                                   AppState appState) {
-
-        this.clientRequests = clientRequests;
-        this.nextSeq = new AtomicLong(lastSeqNum + 1);
+    public PrimaryRequestSequencer(LFQueue<OrderRequest> clientRequests, long lastSeqNum) {
+        super(clientRequests, lastSeqNum);
 
         for (int i = 0; i < POOL_CAPACITY; i++) {
             freePool.offer(new OrderRequest());
         }
-
-        final int replicationStream = Integer.parseInt(Utils.env("REPLICATION_STREAM", "3001"));
-        this.replicationPublisher = new ArchivePublisher(replicationStream, "REPLICATION", false);
 
         String aeronIp = Utils.env("AERON_IP", "224.0.1.1");
         int ackPort = Integer.parseInt(Utils.env("REPLICATION_ACK_PORT", "40552"));
         int ackStream = Integer.parseInt(Utils.env("REPLICATION_ACK_STREAM", "3002"));
 
         FragmentHandler fh = (buf, off, len, header) -> onAck(buf.getLong(off));
-
         this.replicationAckConsumer =
                 new AeronConsumer(aeronIp, String.valueOf(ackPort), ackStream, fh, "REPLICATION_ACK");
-
-        log.info("RequestSequencer initialised: pool={}, stream={}", POOL_CAPACITY, replicationStream);
     }
 
+    @Override
     public void process(final OrderRequest src) {
         OrderRequest dst = freePool.poll();
         if (dst == null) {
@@ -69,19 +48,13 @@ public final class PrimaryRequestSequencer implements Runnable {
         }
 
         OrderRequest.copy(src, dst);
-        dst.setSeqNum(nextSeq.getAndIncrement());
+        dst.setSeqNum(getNextSeqNum());
 
         replicate(dst);
 
         while (!inFlight.offer(dst)) {
             Thread.onSpinWait();
         }
-    }
-
-    private void replicate(OrderRequest dst) {
-        var buf = BUF.get();
-        int len = OrderRequestSerDe.serialize(dst, buf, 0);
-        replicationPublisher.publish(buf, 0, len);
     }
 
     private void onAck(final long seq) {
@@ -97,7 +70,7 @@ public final class PrimaryRequestSequencer implements Runnable {
 
             long msgSeq = req.getSeqNum();
             if (msgSeq == seq) {
-                clientRequests.offer(req);
+                passToEngine(req);
                 recycle(req);
                 return;
             }
@@ -122,16 +95,21 @@ public final class PrimaryRequestSequencer implements Runnable {
         }
     }
 
-    public void shutdown() {
-        replicationPublisher.close();
-        replicationAckConsumer.stop();
+    @Override
+    public void run() {
+        log.info("starting");
+        super.run();
+        replicationAckConsumer.run();
+        log.info("started");
+
     }
 
     @Override
-    public void run() {
-        log.info("RequestSequencer starting");
-        replicationAckConsumer.run();               // blocks
-        log.info("RequestSequencer stopped");
+    public void shutdown() {
+        log.info("stopping");
+        super.shutdown();
+        replicationAckConsumer.stop();
+        log.info("stopped");
     }
 
 }

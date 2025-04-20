@@ -5,6 +5,7 @@ import io.aeron.archive.client.RecordingDescriptorConsumer;
 import org.agrona.collections.MutableBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import trading.common.Utils;
 
 import java.net.Inet4Address;
 import java.net.InetAddress;
@@ -156,5 +157,13 @@ public class AeronUtils {
 
     public static String getAeronDirLocal() {
         return "/dev/shm/aeron-local/dir";
+    }
+
+    public static String aeronUdpChannel(String aeronIp, String replicationPort) {
+        return "aeron:udp?endpoint=" + aeronIp + ":" + replicationPort;
+    }
+
+    public static String aeronIp() {
+        return Utils.env("AERON_IP", "224.0.1.1");
     }
 }

@@ -8,7 +8,6 @@ import quickfix.FieldNotFound;
 import quickfix.Message;
 import quickfix.UnsupportedMessageType;
 import quickfix.field.MsgType;
-import quickfix.field.TransactTime;
 import quickfix.fix42.NewOrderSingle;
 
 import java.time.LocalDateTime;
@@ -21,6 +20,7 @@ import static quickfix.field.OrdType.LIMIT;
 public class OrderRequestSerDe {
 
     private static final Logger log = LoggerFactory.getLogger(OrderRequestSerDe.class);
+    private static final ThreadLocal<OrderRequest> orderRequestThreadLocal = ThreadLocal.withInitial(OrderRequest::new);
 
     public static int serialize(OrderRequest orderRequest, MutableDirectBuffer buffer, int offset) {
         int startOffset = offset;
@@ -60,7 +60,7 @@ public class OrderRequestSerDe {
     }
 
     public static OrderRequest deserializeClientRequest(final DirectBuffer data, int offset, int length) {
-        OrderRequest req = new OrderRequest();
+        OrderRequest req = orderRequestThreadLocal.get();
 
         // Read request type first (1 byte)
         byte requestType = data.getByte(offset);
@@ -134,9 +134,8 @@ public class OrderRequestSerDe {
     }
 
     public static OrderRequest getOrderRequest(Message message) throws FieldNotFound, UnsupportedMessageType {
+        OrderRequest request = orderRequestThreadLocal.get();
         String msgType = message.getHeader().getString(MsgType.FIELD);
-
-        OrderRequest request = null;
 
         if (msgType.equals(MsgType.ORDER_SINGLE)) { // New Order
             NewOrderSingle order = (NewOrderSingle) message;
@@ -149,7 +148,7 @@ public class OrderRequestSerDe {
             long qty = (long) order.getOrderQty().getValue();
             long price = (long) order.getPrice().getValue();
 
-            request = new OrderRequest(
+            request.set(
                     seqNum,
                     OrderRequestType.NEW,
                     clientId,
@@ -168,7 +167,7 @@ public class OrderRequestSerDe {
             long tickerId = Long.parseLong(cancel.getSymbol().getValue());
             char sideChar = cancel.getSide().getValue();
 
-            request = new OrderRequest(
+            request.set(
                     seqNum,
                     OrderRequestType.CANCEL,
                     clientId,
