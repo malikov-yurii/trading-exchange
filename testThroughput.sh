@@ -33,7 +33,7 @@
 #   - Output includes per-run throughput and the average across N test runs.
 # ----------------------------------------------------------------------------------------------------
 
-N=3 # Number of test cycles
+N=5 # Number of test cycles
 export TEST_ID=4
 export TOTAL_ORDER_NUMBER=2600000
 export WARMUP_ORDER_NUMBER=2400000

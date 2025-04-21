@@ -35,7 +35,7 @@
 
 set -e
 
-N=3                     # how many fail‑over cycles to execute
+N=5                     # how many fail‑over cycles to execute
 export TEST_ID=5        # kept from your original script
 
 now() { date '+%Y-%m-%d %H:%M:%S'; }

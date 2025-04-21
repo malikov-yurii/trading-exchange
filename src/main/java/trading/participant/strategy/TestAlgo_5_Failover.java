@@ -83,8 +83,8 @@ public class TestAlgo_5_Failover extends TestAlgo {
     }
 
     private void scheduleResendCheck() {
-        int timeoutMs = 300;
-        int repeatIntervalMs = 500;
+        int timeoutMs = 100;
+        int repeatIntervalMs = 100;
         getScheduler().scheduleAtFixedRate(
                 () -> {
                     try {
@@ -119,7 +119,7 @@ public class TestAlgo_5_Failover extends TestAlgo {
                         log.error("CheckAge failed", exception);
                     }
                 },
-                5000, // initial delay
+                2000, // initial delay
                 repeatIntervalMs, // repeat interval
                 TimeUnit.MILLISECONDS
         );
