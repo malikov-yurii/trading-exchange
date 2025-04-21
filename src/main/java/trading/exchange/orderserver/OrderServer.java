@@ -4,6 +4,6 @@ public interface OrderServer {
 
     void start();
 
-
+    void shutdown();
 
 }

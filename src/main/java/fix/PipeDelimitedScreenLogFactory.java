@@ -38,28 +38,27 @@ public class PipeDelimitedScreenLogFactory implements LogFactory {
 
         @Override
         public void onIncoming(String msg) {
-            logger.logFIXMessage(System.currentTimeMillis(), inLabel, Level.INFO, msg);
+            logger.logFIXMessage(inLabel, Level.INFO, msg);
         }
 
         @Override
         public void onOutgoing(String msg) {
-            logger.logFIXMessage(System.currentTimeMillis(), outLabel, Level.INFO, msg);
+            logger.logFIXMessage(outLabel, Level.INFO, msg);
         }
 
         @Override
         public void onEvent(String msg) {
-            logger.logFIXMessage(System.currentTimeMillis(), eventLabel, Level.INFO, msg);
+            logger.logFIXMessage(eventLabel, Level.INFO, msg);
         }
 
         @Override
         public void onErrorEvent(String msg) {
-            logger.logFIXMessage(System.currentTimeMillis(), errorLabel, Level.ERROR, msg);
+            logger.logFIXMessage(errorLabel, Level.ERROR, msg);
         }
 
         @Override
         public void clear() {
-            logger.logFIXMessage(System.currentTimeMillis(), errorLabel, Level.INFO,
-                    "Log clear operation not supported.");
+            logger.logFIXMessage(errorLabel, Level.INFO, "Log clear operation not supported.");
         }
     }
 

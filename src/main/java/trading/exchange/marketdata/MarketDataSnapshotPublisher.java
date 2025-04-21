@@ -4,9 +4,11 @@ import aeron.AeronPublisher;
 import org.agrona.ExpandableDirectByteBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.event.Level;
 import trading.api.MarketUpdate;
 import trading.api.MarketUpdateSerDe;
 import trading.api.MarketUpdateType;
+import trading.common.AsyncLogger;
 import trading.common.LFQueue;
 import trading.common.ObjectPool;
 import trading.common.SingleThreadRingBuffer;
@@ -26,6 +28,8 @@ public class MarketDataSnapshotPublisher {
 
     private static final Logger log = LoggerFactory.getLogger(MarketDataSnapshotPublisher.class);
 
+    private final AsyncLogger asyncLogger;
+
     private final List<Map<Long, MarketUpdate>> tickerOrders;
     private final AppState appState;
     private final AeronPublisher aeronPublisher;
@@ -43,8 +47,9 @@ public class MarketDataSnapshotPublisher {
     private volatile boolean running = true;
 
     public MarketDataSnapshotPublisher(LFQueue<MarketUpdate> marketUpdateLFQueue,
-                                       AppState appState, int maxTickers) {
+                                       AppState appState, int maxTickers, AsyncLogger asyncLogger) {
         this.appState = appState;
+        this.asyncLogger = asyncLogger;
         marketUpdateLFQueue.subscribe(this::onIncrementalUpdate);
 
         this.tickerOrders = new ArrayList<>(maxTickers);
@@ -147,9 +152,9 @@ public class MarketDataSnapshotPublisher {
         long incSeqUsed = lastIncSeqNum; // the last incremental seq used
 
         if (appState.isRecoveredLeader()) {
-            log.info("== Publishing snapshot start, lastIncSeqNum={} ==", incSeqUsed);
+            asyncLogger.log("MD-SNAP OUT", Level.INFO, "== Publishing snapshot start, lastIncSeqNum:[%s] ==", incSeqUsed);
         } else if (log.isDebugEnabled()) {
-            log.debug("== Not Publishing snapshot start, lastIncSeqNum={} ==", incSeqUsed);
+            asyncLogger.log("MD-SNAP OUT", Level.DEBUG, "== NOT Publishing snapshot start, lastIncSeqNum:[%s] ==", incSeqUsed);
         }
 
         // 1) SNAPSHOT_START
@@ -185,7 +190,7 @@ public class MarketDataSnapshotPublisher {
         snapshotMsg.setOrderId(incSeqUsed);
         publish(snapshotMsg);
 
-        log.info("== Publishing snapshot end, total msgs={} ==", snapshotSeq);
+        asyncLogger.log("MD-SNAP OUT", Level.INFO, "== Publishing snapshot end, total msgs=[%s] ==", snapshotSeq);
     }
 
 
@@ -197,7 +202,7 @@ public class MarketDataSnapshotPublisher {
 
         if (appState.isNotRecoveredLeader()) {
             if (log.isDebugEnabled()) {
-                log.debug("Not Publishing {}", marketUpdate);
+                asyncLogger.log("MD-SNAP OUT", Level.DEBUG, "Not Publishing %s", marketUpdate);
             }
             return;
         }
@@ -206,7 +211,7 @@ public class MarketDataSnapshotPublisher {
         int length = MarketUpdateSerDe.serializeMarketUpdate(marketUpdate, buffer, offset);
 
         aeronPublisher.publish(buffer, offset, length);
-        log.info("Published {}", marketUpdate);
+        asyncLogger.log("MD-SNAP OUT", Level.INFO, "Published %s", marketUpdate);
     }
 
     public void close() {

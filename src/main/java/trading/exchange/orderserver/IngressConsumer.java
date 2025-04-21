@@ -33,8 +33,9 @@ public class IngressConsumer implements Runnable {
 
     private void processOrderRequest(DirectBuffer buffer, int offset, int length, Header header) {
         OrderRequest orderRequest = OrderRequestSerDe.deserializeClientRequest(buffer, offset, length);
-        log.info("{} Received {} offset {} length {}", Utils.getTestTag(orderRequest.getOrderId()),
-                orderRequest, offset, length);
+        if (log.isDebugEnabled()) {
+            log.debug("{} Received {} offset {} length {}", Utils.getTestTag(orderRequest.getOrderId()), orderRequest, offset, length);
+        }
 
         orderRequestConsumer.accept(orderRequest);
     }

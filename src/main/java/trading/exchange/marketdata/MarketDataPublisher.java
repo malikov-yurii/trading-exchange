@@ -4,17 +4,20 @@ import aeron.AeronPublisher;
 import org.agrona.ExpandableDirectByteBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.event.Level;
 import trading.api.MarketUpdate;
 import trading.api.MarketUpdateSerDe;
+import trading.common.AsyncLogger;
 import trading.common.LFQueue;
 import trading.common.Utils;
 import trading.exchange.AppState;
-import trading.exchange.LeadershipManager;
 
 import java.util.concurrent.atomic.AtomicLong;
 
 public class MarketDataPublisher {
     private static final Logger log = LoggerFactory.getLogger(MarketDataPublisher.class);
+
+    private final AsyncLogger asyncLogger;
 
     private final LFQueue<MarketUpdate> marketUpdateLFQueue;
     private final LFQueue<MarketUpdate> sequencedMarketUpdates;
@@ -26,7 +29,7 @@ public class MarketDataPublisher {
 
     public MarketDataPublisher(LFQueue<MarketUpdate> marketUpdateLFQueue,
                                LFQueue<MarketUpdate> sequencedMarketUpdates,
-                               AppState appState) {
+                               AppState appState, AsyncLogger asyncLogger) {
 
         String mdIp = Utils.env("AERON_IP", "224.0.1.1");
         String mdPort = Utils.env("MD_PORT", "40456");
@@ -36,6 +39,7 @@ public class MarketDataPublisher {
         this.sequencedMarketUpdates = sequencedMarketUpdates;
         this.appState = appState;
         this.marketUpdateLFQueue.subscribe(this::publish);
+        this.asyncLogger = asyncLogger;
         log.info("MarketDataPublisher initialized");
     }
 
@@ -61,7 +65,8 @@ public class MarketDataPublisher {
 
             aeronPublisher.publish(buffer, offset, length);
 
-            log.info("Published {}", marketUpdate);
+            asyncLogger.log("MD OUT", Level.INFO, "%s", marketUpdate);
+//            log.info("Published {}", marketUpdate);
         } catch (Exception exception) {
             log.error("onIncrementalUpdate", exception);
         }

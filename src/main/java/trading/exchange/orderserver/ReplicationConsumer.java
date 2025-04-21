@@ -13,8 +13,10 @@ import org.agrona.concurrent.AgentRunner;
 import org.agrona.concurrent.SleepingMillisIdleStrategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.event.Level;
 import trading.api.OrderRequest;
 import trading.api.OrderRequestSerDe;
+import trading.common.AsyncLogger;
 import trading.common.LFQueue;
 import trading.common.Utils;
 import trading.exchange.AppState;
@@ -26,6 +28,7 @@ public class ReplicationConsumer implements Runnable {
 
     private final AeronPublisher replicationAckPublisher;
     private final MutableDirectBuffer seqNumBuffer;
+    private final AsyncLogger asyncLogger;
 
     private AgentRunner runner;
     private final AppState appState;
@@ -33,9 +36,10 @@ public class ReplicationConsumer implements Runnable {
     @Getter
     private volatile long lastSeqNum = 0;
 
-    public ReplicationConsumer(LFQueue<OrderRequest> clientRequests, AppState appState) {
+    public ReplicationConsumer(LFQueue<OrderRequest> clientRequests, AppState appState, AsyncLogger asyncLogger) {
         this.clientRequests = clientRequests;
         this.appState = appState;
+        this.asyncLogger = asyncLogger;
 
         String aeronIp = Utils.env("AERON_IP", "224.0.1.1");
 
@@ -49,8 +53,8 @@ public class ReplicationConsumer implements Runnable {
 
     private void processReplicationEvent(DirectBuffer buffer, int offset, int length) {
         OrderRequest orderRequest = OrderRequestSerDe.deserializeClientRequest(buffer, offset, length);
-        log.info("{} Received {} offset {} length {}", Utils.getTestTag(orderRequest.getOrderId()),
-                orderRequest, offset, length);
+        asyncLogger.log("REPLICATION", Level.INFO, "|11=%s| Received %s offset %s length %s",
+                orderRequest.getOrderId(), orderRequest, offset, length);
 
         lastSeqNum = orderRequest.getSeqNum();
 

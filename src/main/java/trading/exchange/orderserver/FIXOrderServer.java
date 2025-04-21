@@ -28,7 +28,6 @@ import trading.api.OrderRequestSerDe;
 import trading.common.AsyncLogger;
 import trading.common.Constants;
 import trading.common.LFQueue;
-import trading.common.Utils;
 import trading.exchange.AppState;
 import trading.exchange.LeadershipManager;
 import trading.exchange.ReplayReplicationLogConsumer;
@@ -181,7 +180,7 @@ public class FIXOrderServer implements OrderServer {
     }
 
     private synchronized void startReplicationConsumer() {
-        replicationConsumer = new ReplicationConsumer(clientRequests, appState);
+        replicationConsumer = new ReplicationConsumer(clientRequests, appState, asyncLogger);
         replicationConsumer.run();
     }
 
@@ -284,6 +283,7 @@ public class FIXOrderServer implements OrderServer {
         return sessionHolder;
     }
 
+    @Override
     public synchronized void shutdown() {
         stopFIXAcceptor();
         stopRequestSequencer();
@@ -312,7 +312,6 @@ public class FIXOrderServer implements OrderServer {
                 if (log.isDebugEnabled()) {
                     log.debug("Parsed client request: {}", request);
                 }
-                log.info("{} Parsed client request: {}", Utils.getTestTag(request.getOrderId()), request);
 
                 SessionHolder session = getSessionHolder(request.getClientId(), sessionId);
 

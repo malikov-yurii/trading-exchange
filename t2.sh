@@ -3,6 +3,6 @@
 
 ./startInfra.sh;
 
-docker compose down exchange-1 trader-r;
+docker compose down exchange-1 trader-1;
 
-docker compose up exchange-1 trader-r;
+docker compose up exchange-1 trader-1;

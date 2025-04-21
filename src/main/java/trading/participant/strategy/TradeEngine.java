@@ -57,7 +57,7 @@ public class TradeEngine {
         } else if (algoType == AlgoType.LIQUIDITY_TAKER) {
             this.algo = new LiquidityTaker(featureEngine, orderManager, tradeEngineConfigMap);
         } else if (algoType == AlgoType.RANDOM) {
-            this.algo = new RandomOrderSender(this, orderGatewayClient);
+            this.algo = new TestAlgo(this);
         } else {
             throw new IllegalArgumentException("Unknown strategy type: " + algoType);
         }

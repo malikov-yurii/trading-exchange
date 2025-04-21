@@ -1,7 +1,7 @@
 services:
 
-  trader-r:
-    container_name: trader-r
+  trader-1:
+    container_name: trader-1
     shm_size: "1gb"
     build:
       context: .
@@ -12,13 +12,13 @@ services:
       CLIENT_ID: 1
       ALGO_TYPE: RANDOM
       ORDER_SERVER_HOSTS: exchange-1,exchange-2,exchange-3
-      THISHOST: "trader-r"
+      THISHOST: "trader-1"
       SLEEP_TIME_MS: ${SLEEP_TIME_MS}
-      ORDER_NUM: ${ORDER_NUM}
-      SLEEP_ORDER_ID: ${SLEEP_ORDER_ID}
+      TOTAL_ORDER_NUMBER: ${TOTAL_ORDER_NUMBER}
+      WARMUP_ORDER_NUMBER: ${WARMUP_ORDER_NUMBER}
       TEST_ID: ${TEST_ID}
       JAVA_TOOL_OPTIONS: ${TRADER_JAVA_TOOL_OPTIONS}
-    hostname: trader-r
+    hostname: trader-1
     volumes:
       - aeron-dir:/dev/shm/aeron-root
     depends_on:

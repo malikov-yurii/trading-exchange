@@ -83,16 +83,16 @@ public class DisruptorLogger implements AsyncLogger {
     }
 
     @Override
-    public void log(long time, String label, Level level, String msgTemplate, Object... args) {
+    public void log(String label, Level level, String msgTemplate, Object... args) {
         if (log.isEnabledForLevel(level)) {
-            logLine(time, label, level, msgTemplate, args, toFormattedString);
+            logLine(System.currentTimeMillis(), label, level, msgTemplate, args, toFormattedString);
         }
     }
 
     @Override
-    public void logFIXMessage(long time, String label, Level level, String msgTemplate) {
+    public void logFIXMessage(String label, Level level, String msgTemplate) {
         if (log.isEnabledForLevel(level)) {
-            logLine(time, label, null, msgTemplate, null, toFIXMessageString);
+            logLine(System.currentTimeMillis(), label, null, msgTemplate, null, toFIXMessageString);
         }
     }
 

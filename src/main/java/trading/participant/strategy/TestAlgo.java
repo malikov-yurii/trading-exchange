@@ -20,21 +20,24 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static trading.api.OrderMessageType.ACCEPTED;
+import static trading.api.OrderMessageType.CANCELED;
+import static trading.api.OrderMessageType.CANCEL_REJECTED;
+import static trading.api.OrderMessageType.REQUEST_REJECT;
 import static trading.common.Utils.env;
 import static trading.common.Utils.getTestTag;
 
-public class RandomOrderSender implements TradingAlgo {
-    record TestRequest(OrderRequest request, LocalDateTime sent) {
-    }
+public class TestAlgo implements TradingAlgo {
 
-    private static final Logger log = LoggerFactory.getLogger(RandomOrderSender.class);
-    public final int SLEEP_ORDER_ID;
+    record TestRequest(OrderRequest request, LocalDateTime sent) {}
+
+    private static final Logger log = LoggerFactory.getLogger(TestAlgo.class);
+    public final int WARMUP_ORDER_NUMBER;
 
     private final TradeEngine tradeEngine;
-//    private final OrderGatewayClient orderGatewayClient;
 
     private volatile boolean isRunning;
-    private final AtomicLong nextOrderId = new AtomicLong(1);
+    private final AtomicLong nextOrderId = new AtomicLong(0);
     private final Random random = new Random();
     private int clientNum;
     private int tickerNum;
@@ -43,22 +46,20 @@ public class RandomOrderSender implements TradingAlgo {
     private final OrderRequest cancelOrderRequest = new OrderRequest();
     private final AtomicReference<TestRequest> lastRequest = new AtomicReference<>();
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(
-            r -> new Thread(r, "RandomOrderSender-Cron"));
-
+            r -> new Thread(r, "TestAlgo-Cron"));
 
     private int orderNum;
     private volatile int currentTestId;
 
-    public RandomOrderSender(TradeEngine tradeEngine, OrderGatewayClient orderGatewayClient) {
+    public TestAlgo(TradeEngine tradeEngine) {
         log.info("TradingAlgo. Init.");
         this.tradeEngine = tradeEngine;
-        this.SLEEP_ORDER_ID = Integer.valueOf(env("SLEEP_ORDER_ID", "400000"));
+        this.WARMUP_ORDER_NUMBER = Integer.valueOf(env("WARMUP_ORDER_NUMBER", "400000"));
         sleepTime = Integer.parseInt(env("SLEEP_TIME_MS", "500"));
-        orderNum = Integer.parseInt(env("ORDER_NUM", "1_0"));
+        orderNum = 500 + Integer.parseInt(env("TOTAL_ORDER_NUMBER", "1_0"));
         clientNum = 4;
         tickerNum = 2;
-        log.info("ORDER_NUM: {}", orderNum);
-//        this.orderGatewayClient = orderGatewayClient;
+        log.info("TOTAL_ORDER_NUMBER: {}", orderNum);
     }
 
     @Override
@@ -75,30 +76,28 @@ public class RandomOrderSender implements TradingAlgo {
     public void onOrderUpdate(OrderMessage orderMessage) {
         if (currentTestId == 5) {
             synchronized (newOrderRequest) {
-                log.info("{} Trace. onOrderUpdate. {}, newOrderRequest.getOrderId():{}, cancelOrderRequest.getOrderId():{}",
-                        getTestTag(orderMessage.getClientOrderId()), orderMessage, newOrderRequest.getOrderId(), cancelOrderRequest.getOrderId());
-                OrderMessageType type = orderMessage.getType();
-                if (orderMessage.getClientOrderId() == newOrderRequest.getOrderId()
-                        && type == OrderMessageType.ACCEPTED) {
-                    // Step 5.2: On Ack New: Send Cancel
-                    log.info("{} onOrderUpdate. Received Ack New: {}", getTestTag(orderMessage.getClientOrderId()), orderMessage);
-                    sendCancelOrder();
-                } else if (
-                        orderMessage.getClientOrderId() == cancelOrderRequest.getOrderId()
-                                && (type == OrderMessageType.CANCELED || type == OrderMessageType.CANCEL_REJECTED)
-                ||
-                        orderMessage.getClientOrderId() == newOrderRequest.getOrderId()
-                                && type == OrderMessageType.REQUEST_REJECT
-                ) {
+                long clientOrderId = orderMessage.getClientOrderId();
+//                log.info("{} Trace. onOrderUpdate. {}, newOrderRequest.getOrderId():{}, cancelOrderRequest.getOrderId():{}", getTestTag(clientOrderId), orderMessage, newOrderRequest.getOrderId(), cancelOrderRequest.getOrderId());
 
-                    // Step 5.2: Send New to start new cycle (loops to 5.2)
-                    log.info("{} onOrderUpdate. Received Nack {}: {}", getTestTag(orderMessage.getClientOrderId()), type, orderMessage);
+                OrderMessageType type = orderMessage.getType();
+                if (clientOrderId == newOrderRequest.getOrderId() && type == ACCEPTED) {
+                    log.info("{} onOrderUpdate. Received New Order Ack {}: {}", getTestTag(clientOrderId), type, orderMessage);
+                    sendCancelOrder();
+                } else if (clientOrderId == newOrderRequest.getOrderId() && type == REQUEST_REJECT) {
+                    /* Indicates New Order was Submitted successfully earlier. Thus, dup new order with the same clOrdId is rejected  */
+                    log.info("{} onOrderUpdate. Received New Order Nack {}: {}", getTestTag(clientOrderId), type, orderMessage);
+                    sendCancelOrder();
+                } else if (clientOrderId == cancelOrderRequest.getOrderId() && type == CANCELED) {
+                    log.info("{} onOrderUpdate. Received Cancel Order Ack {}: {}", getTestTag(clientOrderId), type, orderMessage);
+                    sendNewOrder();
+                } else if (clientOrderId == cancelOrderRequest.getOrderId() && type == CANCEL_REJECTED) {
+                    /* Indicates order was canceled earlier, and it is not live anymore */
+                    log.info("{} onOrderUpdate. Received Cancel Nack {}: {}", getTestTag(clientOrderId), type, orderMessage);
                     sendNewOrder();
                 } else {
                     log.error("onOrderUpdate. Unexpected {}", orderMessage);
                 }
             }
-
         }
     }
 
@@ -114,11 +113,11 @@ public class RandomOrderSender implements TradingAlgo {
             test5_scheduleResendCheck();
             Thread.sleep(10_000);
             synchronized (newOrderRequest) {
-                // Step 5.1: Initial New Order Request. Later requests are generated on exchange response
+                // Initial New Order Request to kick off looping: all later requests are generated on exchange responses
                 sendNewOrder();
             }
         } catch (Exception e) {
-            log.error("Error in RandomOrderSender", e);
+            log.error("Error in TestAlgo", e);
         }
     }
 
@@ -179,7 +178,7 @@ public class RandomOrderSender implements TradingAlgo {
             }
 
         } catch (Exception e) {
-            log.error("Error in RandomOrderSender", e);
+            log.error("Error in TestAlgo", e);
         }
     }
 
@@ -218,8 +217,8 @@ public class RandomOrderSender implements TradingAlgo {
         newOrderRequest.setPrice(price);
         tradeEngine.sendOrderRequest(newOrderRequest);
 
-        if (nextOrderId.get() == SLEEP_ORDER_ID) {
-            log.info("Sleeping {}ms on next order |11={}|", sleepTime, SLEEP_ORDER_ID);
+        if (nextOrderId.get() == WARMUP_ORDER_NUMBER) {
+            log.info("Sleeping {}ms on next order |11={}|", sleepTime, WARMUP_ORDER_NUMBER);
             sleep(sleepTime);
         }
     }
