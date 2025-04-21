@@ -10,7 +10,7 @@ services:
       - .env
     environment:
       CLIENT_ID: 1
-      ALGO_TYPE: RANDOM
+      ALGO_TYPE: TEST
       ORDER_SERVER_HOSTS: exchange-1,exchange-2,exchange-3
       THISHOST: "trader-1"
       SLEEP_TIME_MS: ${SLEEP_TIME_MS}

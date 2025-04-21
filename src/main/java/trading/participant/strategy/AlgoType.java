@@ -4,6 +4,6 @@ public enum AlgoType {
 
     MARKET_MAKER,
     LIQUIDITY_TAKER,
-    RANDOM,
+    TEST,
 
 }

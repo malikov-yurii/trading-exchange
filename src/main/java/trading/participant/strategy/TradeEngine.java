@@ -15,7 +15,10 @@ import trading.participant.ordergateway.OrderGatewayClient;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
+
+import static trading.common.Utils.env;
 
 public class TradeEngine {
     private static final Logger log = LoggerFactory.getLogger(TradeEngine.class);
@@ -56,8 +59,15 @@ public class TradeEngine {
             this.algo = new MarketMaker(featureEngine, orderManager, tradeEngineConfigMap);
         } else if (algoType == AlgoType.LIQUIDITY_TAKER) {
             this.algo = new LiquidityTaker(featureEngine, orderManager, tradeEngineConfigMap);
-        } else if (algoType == AlgoType.RANDOM) {
-            this.algo = new TestAlgo(this);
+        } else if (algoType == AlgoType.TEST) {
+            String currentTestId = env("TEST_ID", null);
+            Objects.requireNonNull(currentTestId, "TEST_ID is not set");
+            log.info("TEST_ID: {}", currentTestId);
+            switch (currentTestId) {
+                case "4" -> this.algo = new TestAlgo_4_Throughput(this);
+                case "5" -> this.algo = new TestAlgo_5_Failover(this);
+                default -> throw new RuntimeException("test not supported :" + currentTestId);
+            }
         } else {
             throw new IllegalArgumentException("Unknown strategy type: " + algoType);
         }

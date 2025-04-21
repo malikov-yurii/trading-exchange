@@ -1,8 +1,39 @@
 #!/usr/bin/env bash
 
-# Number of test cycles
-N=5
+# ----------------------------------------------------------------------------------------------------
+# Performance test evaluates the sustained throughput of the trading system under load.
 
+# Test Scenario:
+#   1. All core components are launched: Aeron, ZooKeeper, Exchange nodes, and Trader.
+#   2. Warm-up phase (to trigger Java JIT compilation):
+#       2.1. Trader sends a New Sell Qty=100 Order to the Exchange.
+#       2.2. Trader sends a New Buy Qty=30 Order to the Exchange.
+#       2.3. Trader sends a Cancel for the remaining Sell Order qty.
+#       2.4. Steps 2.1–2.3 are repeated until WARMUP_ORDER_NUMBER is reached.
+#   3. Wait for SLEEP_TIME_MS milliseconds to allow the Exchange to process all warm-up orders.
+#   4. Performance Test phase:
+#       4.1. Trader sends a New Sell Qty=100 Order to the Exchange.
+#       4.2. Trader sends a New Buy Qty=30 Order to the Exchange.
+#       4.3. Trader sends a Cancel for the Sell Order.
+#       4.4. Steps 4.1–4.3 are repeated until TOTAL_ORDER_NUMBER is reached.
+
+# Notes:
+#   - Trader does not wait for a response from the Exchange before sending the next order request.
+#   - This ensures the Trader sends requests as fast as possible, stressing the Exchange to keep up.
+
+# Metrics:
+#   - Total Orders Sent              : TOTAL_ORDER_NUMBER
+#   - Orders After Warm-up           : TOTAL_ORDER_NUMBER - WARMUP_ORDER_NUMBER
+#   - Sell Orders                    : 50% of total order count
+#   - Buy Orders                     : 50% of total order count
+#   - Sell Order Requests            : 2 × Sell Orders (1 New + 1 Cancel)
+#   - Buy Order Requests             : 1 × Buy Orders (1 New only)
+#   - Total Order Requests           : (TOTAL_ORDER_NUMBER - WARMUP_ORDER_NUMBER) × 1.5
+#   - Throughput                     : Total Order Requests / Time interval (between first New Order and last Cancel Ack)
+#   - Output includes per-run throughput and the average across N test runs.
+# ----------------------------------------------------------------------------------------------------
+
+N=3 # Number of test cycles
 export TEST_ID=4
 export TOTAL_ORDER_NUMBER=2600000
 export WARMUP_ORDER_NUMBER=2400000
@@ -91,5 +122,7 @@ done
 # ─── compute and print average and data points ───────────────────────────────
 avg_throughput=$(echo "scale=2; $sum_throughput / $N" | bc -l)
 echo "=== All $N runs complete ==="
-echo "Throughputs         : ${throughputs[*]}"
+echo "Throughputs         : $(printf '%s, ' "${throughputs[@]}" | sed 's/, $//')"
 echo "Average throughput  : ${avg_throughput} req/sec"
+
+docker compose down
