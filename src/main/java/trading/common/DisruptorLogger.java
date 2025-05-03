@@ -26,6 +26,7 @@ public class DisruptorLogger implements AsyncLogger {
     private final RingBuffer<LogRecord> ringBuffer;
     private final Function<LogRecord, String> toFormattedString;
     private final Function<LogRecord, String> toFIXMessageString;
+    private final Function<LogRecord, String> toTaggedFIXMessageString;
 
     public DisruptorLogger(int sizeInPowerOfTwo) {
 
@@ -39,9 +40,65 @@ public class DisruptorLogger implements AsyncLogger {
 
         ringBuffer = disruptor.getRingBuffer();
 
-        this.toFormattedString = event -> toLogLine(event, String.format(event.msg, event.args));
+        this.toFormattedString = event -> {
+            String logLine = null;
+            try {
+                logLine = toLogLine(event, String.format(event.msg, event.args));
+            } catch (Exception exception) {
+                log.error(exception.getMessage(), exception);
+            }
+            return logLine;
+        };
 
-        this.toFIXMessageString = event -> toLogLine(event, event.msg.replace('\u0001', '|'));
+        this.toFIXMessageString = event -> {
+            String logLine = null;
+            try {
+                logLine = toLogLine(event, replaceSOH(event.msg));
+            } catch (Exception exception) {
+                log.error(exception.getMessage(), exception);
+            }
+            return logLine;
+        };
+
+        this.toTaggedFIXMessageString = event -> {
+            String logLine = null;
+            try {
+                String msg = replaceSOH(event.msg);
+                String fixMsgDescription = getFixMsgDescription(msg);
+                if (fixMsgDescription != null) {
+                    event.label += " " + fixMsgDescription + ":";
+                }
+                logLine = toLogLine(event, msg);
+            } catch (Exception exception) {
+                log.error(exception.getMessage(), exception);
+            }
+            return logLine;
+        };
+    }
+
+    private static String replaceSOH(String msg) {
+        return msg == null || "null".equalsIgnoreCase(msg) ? null: msg.replace('\u0001', '|');
+    }
+
+    private static String getFixMsgDescription(String msg) {
+        String fixMsgDescription = null;
+        if (msg == null) {
+            return null;
+        }
+        if (msg.contains("|35=D|")) {
+            fixMsgDescription = "New Order Request";
+        } else if (msg.contains("|39=0|")) {
+            fixMsgDescription = "New Order Ack";
+        } else if (msg.contains("|35=3|")) {
+            fixMsgDescription = "New Order Nack";
+        } else if (msg.contains("|35=F|")) {
+            fixMsgDescription = "Cancel Order Request";
+        } else if (msg.contains("|39=4|")) {
+            fixMsgDescription = "Cancel Order Ack";
+        } else if (msg.contains("|35=9|")) {
+            fixMsgDescription = "Cancel Order Nack";
+        }
+        return String.format("%-20s", fixMsgDescription);
     }
 
     private static String toLogLine(LogRecord event, String msg) {
@@ -93,6 +150,13 @@ public class DisruptorLogger implements AsyncLogger {
     public void logFIXMessage(String label, Level level, String msgTemplate) {
         if (log.isEnabledForLevel(level)) {
             logLine(System.currentTimeMillis(), label, null, msgTemplate, null, toFIXMessageString);
+        }
+    }
+
+    @Override
+    public void logTaggedFIXMessage(String label, Level level, String msgTemplate) {
+        if (log.isEnabledForLevel(level)) {
+            logLine(System.currentTimeMillis(), label, null, msgTemplate, null, toTaggedFIXMessageString);
         }
     }
 

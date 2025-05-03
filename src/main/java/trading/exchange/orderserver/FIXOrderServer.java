@@ -2,7 +2,7 @@ package trading.exchange.orderserver;
 
 import aeron.AeronPublisher;
 import aeron.AeronUtils;
-import fix.PipeDelimitedScreenLogFactory;
+import fix.FixUtils;
 import fix.ReusableMessageFactory;
 import org.agrona.ExpandableDirectByteBuffer;
 import org.agrona.MutableDirectBuffer;
@@ -60,7 +60,8 @@ public class FIXOrderServer implements OrderServer {
 
     private final AeronPublisher ingressPublisher;
 
-    record SessionHolder(SessionID sessionId, long clientId, Message reusableOutMessage, MutableDirectBuffer buf) {}
+    record SessionHolder(SessionID sessionId, long clientId, Message reusableOutMessage, MutableDirectBuffer buf) {
+    }
 
     private long seqNum;
     private Acceptor acceptor;
@@ -153,9 +154,11 @@ public class FIXOrderServer implements OrderServer {
 
             // 7) The rest is unchanged
             MessageStoreFactory storeFactory = new FileStoreFactory(settings);
-            LogFactory logFactory       = new PipeDelimitedScreenLogFactory(asyncLogger);
+
+            LogFactory logFactory = FixUtils.getFIXLoggerFactory(asyncLogger);
+
             MessageFactory messageFactory = new ReusableMessageFactory(new Message());
-            Application application     = new FIXApplicationAdapter();
+            Application application = new FIXApplicationAdapter();
 
             acceptor = new ThreadedSocketAcceptor(
                     application,

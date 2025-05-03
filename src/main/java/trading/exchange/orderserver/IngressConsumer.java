@@ -1,13 +1,13 @@
 package trading.exchange.orderserver;
 
 import aeron.AeronConsumer;
+import fix.FixUtils;
 import io.aeron.logbuffer.Header;
 import org.agrona.DirectBuffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trading.api.OrderRequest;
 import trading.api.OrderRequestSerDe;
-import trading.common.Utils;
 
 import java.util.function.Consumer;
 
@@ -34,7 +34,7 @@ public class IngressConsumer implements Runnable {
     private void processOrderRequest(DirectBuffer buffer, int offset, int length, Header header) {
         OrderRequest orderRequest = OrderRequestSerDe.deserializeClientRequest(buffer, offset, length);
         if (log.isDebugEnabled()) {
-            log.debug("{} Received {} offset {} length {}", Utils.getTestTag(orderRequest.getOrderId()), orderRequest, offset, length);
+            log.debug("{} Received {} offset {} length {}", FixUtils.getTestTag(orderRequest.getOrderId()), orderRequest, offset, length);
         }
 
         orderRequestConsumer.accept(orderRequest);

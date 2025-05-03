@@ -1,6 +1,7 @@
 package trading.participant.ordergateway;
 
-import fix.PipeDelimitedScreenLogFactory;
+import fix.FixUtils;
+import fix.PipeDelimitedFIXLoggerFactory;
 import fix.ReusableMessageFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,8 +53,7 @@ public class FIXOrderGatewayClient extends MessageCracker implements OrderGatewa
             log.info("Connecting to FIX server with settings: {}", settings);
             Application app = this;
             MessageStoreFactory storeFactory = new FileStoreFactory(settings);
-//            LogFactory logFactory = new ScreenLogFactory(true, true, true);
-            LogFactory logFactory = new PipeDelimitedScreenLogFactory(asyncLogger);
+            LogFactory logFactory = FixUtils.getFIXLoggerFactory(asyncLogger);
             MessageFactory messageFactory = new ReusableMessageFactory(new Message());
             initiator = new ThreadedSocketInitiator(app, storeFactory, settings, logFactory, messageFactory);
             initiator.start();
@@ -71,7 +71,8 @@ public class FIXOrderGatewayClient extends MessageCracker implements OrderGatewa
             trySend(fixMessage);
 
             if (log.isDebugEnabled()) {
-                log.debug("Sent FIX request: {} for {}", fixMessage.toString().replace('\u0001', '|'), request);
+                log.debug("Sent {} Order {}. {} {}", request.getType(), FixUtils.getTestTag(request.getOrderId()),
+                        fixMessage.toString().replace('\u0001', '|'), request);
             }
         } catch (IllegalArgumentException e) {
             log.error("Failed to send FIX message. " + request, e);

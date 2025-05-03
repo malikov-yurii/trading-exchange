@@ -18,6 +18,7 @@ services:
       WARMUP_ORDER_NUMBER: ${WARMUP_ORDER_NUMBER}
       TEST_ID: ${TEST_ID}
       JAVA_TOOL_OPTIONS: ${TRADER_JAVA_TOOL_OPTIONS}
+      FIX_LOGGER: ${FIX_LOGGER}
     hostname: trader-1
     volumes:
       - aeron-dir:/dev/shm/aeron-root
@@ -40,6 +41,7 @@ services:
       INSTANCE_ID: "1"
       THISHOST: "exchange-1"
       JAVA_TOOL_OPTIONS: ${EXCHANGE_JAVA_TOOL_OPTIONS}
+      FIX_LOGGER: ${FIX_LOGGER}
     hostname: exchange-1
     volumes:
       - aeron-dir:/dev/shm/aeron-root
@@ -62,6 +64,7 @@ services:
       INSTANCE_ID: "2"
       THISHOST: "exchange-2"
       JAVA_TOOL_OPTIONS: ${EXCHANGE_JAVA_TOOL_OPTIONS}
+      FIX_LOGGER: ${FIX_LOGGER}
     hostname: exchange-2
     volumes:
       - aeron-dir:/dev/shm/aeron-root
@@ -85,6 +88,7 @@ services:
       INSTANCE_ID: "3"
       THISHOST: "exchange-3"
       JAVA_TOOL_OPTIONS: ${EXCHANGE_JAVA_TOOL_OPTIONS}
+      FIX_LOGGER: ${FIX_LOGGER}
     hostname: exchange-3
     volumes:
       - aeron-dir:/dev/shm/aeron-root

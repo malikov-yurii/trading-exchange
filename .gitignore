@@ -34,3 +34,5 @@ tmp
 /.nb-gradle/
 local_data
 local_config
+.DS_Store
+src/.DS_Store

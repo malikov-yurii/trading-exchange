@@ -8,4 +8,6 @@ public interface AsyncLogger {
 
     void logFIXMessage(String label, Level level, String msgTemplate);
 
+    void logTaggedFIXMessage(String label, Level level, String msgTemplate);
+
 }

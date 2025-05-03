@@ -14,15 +14,11 @@ import java.util.Random;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static trading.common.Utils.env;
 
 @Getter
 public abstract class TestAlgo implements TradingAlgo {
-
-    record TestRequest(OrderRequest request, LocalDateTime sent) {
-    }
 
     private static final Logger log = LoggerFactory.getLogger(TestAlgo.class);
     public final int WARMUP_ORDER_NUMBER;
@@ -32,15 +28,11 @@ public abstract class TestAlgo implements TradingAlgo {
     private volatile boolean isRunning;
     private final AtomicLong nextOrderId = new AtomicLong(0);
     private final Random random = new Random();
-    private int clientNum;
-    private int tickerNum;
-    private int sleepTime;
+    private final int clientNum;
+    private final int tickerNum;
+    private final int sleepTime;
     @Getter
-    private final OrderRequest newOrderRequest = new OrderRequest();
-    @Getter
-    private final OrderRequest cancelOrderRequest = new OrderRequest();
-    @Getter
-    private final AtomicReference<TestRequest> lastRequest = new AtomicReference<>();
+    private final TestRequest orderRequest = new TestRequest();
     @Getter
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(
             r -> new Thread(r, "TestAlgo-Cron"));
@@ -91,20 +83,8 @@ public abstract class TestAlgo implements TradingAlgo {
     public void onOrderUpdate(OrderMessage orderMessage) {
     }
 
-    protected void sendCancelOrder() {
-        OrderRequest.copy(newOrderRequest, cancelOrderRequest);
-        cancelOrderRequest.setType(OrderRequestType.CANCEL);
-        tradeEngine.sendOrderRequest(cancelOrderRequest);
-        lastRequest.set(new TestRequest(cancelOrderRequest, LocalDateTime.now()));
-    }
-
-    protected void sendOrderRequest(OrderRequest cancelSellNewOrderRequest) {
-        tradeEngine.sendOrderRequest(cancelSellNewOrderRequest);
-    }
-
-    protected void sendNewOrder() {
-        sendNewOrderRequest(newOrderRequest, 0, 0, Side.SELL, 100, 10);
-        lastRequest.set(new TestRequest(newOrderRequest, LocalDateTime.now()));
+    protected void sendOrderRequest(OrderRequest orderRequest) {
+        tradeEngine.sendOrderRequest(orderRequest);
     }
 
     protected void sendNewOrderRequest(OrderRequest newOrderRequest, int clientId, int tickerId, Side side, int qty, int price) {
@@ -136,6 +116,20 @@ public abstract class TestAlgo implements TradingAlgo {
 
     public void shutdown() {
         isRunning = false;
+    }
+
+    static class TestRequest extends OrderRequest {
+        LocalDateTime newOrderTime;
+        LocalDateTime cancelOrderTime;
+        LocalDateTime resendingTime;
+        @Override
+        public String toString() {
+            return super.toString()
+                    + ", newOrderTime:" + newOrderTime
+                    + ", cancelOrderTime:" + cancelOrderTime
+                    + ", resendingTime:" + resendingTime
+                    ;
+        }
     }
 
 }

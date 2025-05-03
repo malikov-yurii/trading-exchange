@@ -6,31 +6,31 @@ import quickfix.LogFactory;
 import quickfix.SessionID;
 import trading.common.AsyncLogger;
 
-public class PipeDelimitedScreenLogFactory implements LogFactory {
+public class PipeDelimitedFIXLoggerFactory implements LogFactory {
 
     private final AsyncLogger logger;
 
-    public PipeDelimitedScreenLogFactory(AsyncLogger logger) {
+    public PipeDelimitedFIXLoggerFactory(AsyncLogger logger) {
         this.logger = logger;
     }
 
     @Override
     public Log create(SessionID sessionID) {
-        return new PipeDelimitedScreenLog(sessionID, logger);
+        return new PipeDelimitedFIXLogger(sessionID, logger);
     }
 
-    static class PipeDelimitedScreenLog implements Log {
+    static class PipeDelimitedFIXLogger implements Log {
         private final AsyncLogger logger;
         private final String inLabel;
         private final String outLabel;
         private final String eventLabel;
         private final String errorLabel;
 
-        public PipeDelimitedScreenLog(SessionID sessionID, AsyncLogger logger) {
+        public PipeDelimitedFIXLogger(SessionID sessionID, AsyncLogger logger) {
             this.logger = logger;
             String[] split = sessionID.toString().split(":");
             String id = split[split.length -1];
-            inLabel = id + " IN:";
+            inLabel = id + " IN :";
             outLabel = id + " OUT:";
             eventLabel = id + " EVENT:";
             errorLabel = id + " ERROR:";

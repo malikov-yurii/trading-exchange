@@ -35,8 +35,11 @@
 
 set -e
 
-N=${1:-5}               # how many fail‑over cycles to execute
+N=${1:-1}               # how many fail‑over cycles to execute
 export TEST_ID=5        # kept from your original script
+export FIX_LOGGER=TAGGED
+export TRADER_JAVA_TOOL_OPTIONS="-Dlogback.configurationFile=/root/jar/logback-debug.xml -XX:+TieredCompilation -XX:TieredStopAtLevel=4 -XX:+AlwaysPreTouch -XX:+UseNUMA -XX:+UseStringDeduplication -Xms2G -Xmx4G"
+export EXCHANGE_JAVA_TOOL_OPTIONS="-Dlogback.configurationFile=/root/jar/logback-debug.xml -XX:+TieredCompilation -XX:TieredStopAtLevel=4 -XX:+AlwaysPreTouch -XX:+UseNUMA -XX:+UseStringDeduplication -Xms2G -Xmx4G"
 
 now() { date '+%Y-%m-%d %H:%M:%S'; }
 
@@ -67,65 +70,66 @@ for run in $(seq 1 $N); do
   echo "$(now)  [run $run]  Paused exchange-1 (leader)";        sleep 15
   echo
 
-  # Extract ClOrdID of the re-sent order request
-  ORDER_ID=$(docker compose logs trader-1 \
-             | grep 'First Resend init' \
-             | grep -oE '\|11=[0-9]+\|' \
-             | head -1 | cut -d'=' -f2 | tr -d '|')
+  # Grab the last “Failover succeeded” line
+    log_line=$(docker compose logs trader-1 2>&1 \
+      | grep 'Failover succeeded in' \
+      | tail -1)
+
+  if [[ -z $log_line ]]; then
+    echo "‼️  [run $run] No 'Failover succeeded' line found"; exit 1
+  fi
+
+  # Timestamp at the start of the line (HH:MM:SS.mmm)
+  SUCC_TS=$(echo "$log_line" | awk '{print $3}')
+
+  # Extract ORDER_ID via ERE + sed
+  ORDER_ID=$(echo "$log_line" \
+    | grep -oE '\|11=[0-9]+' \
+    | sed 's/|11=//')
+
+  # Fail‑over in milliseconds inside “…in [1234] ms”
+  FAILOVER_MS=$(echo "$log_line" | grep -oP 'succeeded in \[\K[0-9]+')
+
+  # newOrderTime / cancelOrderTime / resendingTime fields
+  new_ts=$(echo "$log_line"      | grep -oP 'newOrderTime:\K[^,]*')
+  cancel_ts=$(echo "$log_line"   | grep -oP 'cancelOrderTime:\K[^,]*')
+  init_ts=$(echo "$log_line"     | grep -oP 'resendingTime:\K[^ ]*')
+
+  # choose original‑request timestamp
+  if [[ -n "$cancel_ts" && "$cancel_ts" != "null" ]]; then
+      ORIG_TS=$cancel_ts   # we only need the HH:MM:SS part
+  else
+      ORIG_TS=$new_ts
+  fi
+  ORIG_TS=${ORIG_TS#*T}           # strip the date part -> HH:MM:SS.nnnnnnnnn
+  INIT_TS=${init_ts#*T}
+
+  # convert FAILOVER_MS → seconds
+  failover=$(awk "BEGIN {printf \"%.3f\", $FAILOVER_MS/1000}")
+
+  failovers+=("$failover")
+  sum_failover_time=$(awk "BEGIN {print $sum_failover_time + $failover}")
 
   KEY="|11=$ORDER_ID|\|LEADER\|FOLLOWER"
   ADD_COLOR_KEY="ACCEPTED\|REQUEST_REJECT\|CANCELED\|CANCEL_REJECTED\|35=D\|35=F\|First Resend succeeded\|First Resend init\|"
 
-  echo "[run $run]  Extracted ORDER_ID: $ORDER_ID"
   echo "------------------------------------------------------------------------------"
-  docker compose logs trader-1 | grep --color=always "$KEY" | grep --color=always "$ADD_COLOR_KEY"
+  docker compose logs trader-1 | grep --color=always "$KEY" | grep --color=always "$ADD_COLOR_KEY" | grep -v 'incorrect field\|DEBUG'
   echo "------------------------------------------------------------------------------"
 
   for ex in exchange-1 exchange-2 exchange-3; do
     echo "[run $run]  Logs from $ex"
-    docker compose logs "$ex" | grep --color=always "$KEY" | grep --color=always "$ADD_COLOR_KEY"
+    docker compose logs "$ex" | grep --color=always "$KEY" | grep --color=always "$ADD_COLOR_KEY" | grep -v 'incorrect field\|DEBUG'
     echo "------------------------------------------------------------------------------"
   done
 
-  # ⏱  Compute fail‑over time                                                #
-  TRADER_LOG=$(docker compose logs trader-1 2>&1)
-
-  # first “First Resend init”
-  init_line_num=$(echo "$TRADER_LOG" | grep -n 'First Resend init' | head -1 | cut -d: -f1)
-  [[ -z $init_line_num ]] && { echo "‼️  [run $run] No 'First Resend init' found"; exit 1; }
-
-  # original Order Request (New |35=D| or Cancel |35=F|) before Resend
-  orig_line=$(echo "$TRADER_LOG" \
-              | head -n $((init_line_num-1)) \
-              | grep "|11=$ORDER_ID|" \
-              | grep "OUT:" \
-              | grep -E "35=D|35=F" \
-              | tail -1)
-
-  ORIG_TS=$(echo "$orig_line"           | awk '{print $3}')
-  INIT_TS=$(echo "$TRADER_LOG"          | grep 'First Resend init'      | head -1 | awk '{print $3}')
-  SUCC_TS=$(echo "$TRADER_LOG"          | grep 'First Resend succeeded' | head -1 | awk '{print $3}')
-
-  if [[ -z $ORIG_TS || -z $SUCC_TS ]]; then
-    echo "‼️  [run $run] Could not find original or success timestamps"
-    exit 1
-  fi
-
-  # HH:MM:SS.mmm → seconds since midnight
-  to_secs() { awk -F '[:.]' '{print ($1*3600)+($2*60)+$3 + $4/1000}'; }
-  orig_sec=$(echo "$ORIG_TS" | to_secs)
-  succ_sec=$(echo "$SUCC_TS" | to_secs)
-
-  failover=$(echo "$succ_sec - $orig_sec" | bc -l)
-
-  echo "[run $run]  Original request     : $ORIG_TS"
-  echo "[run $run]  First Resend init    : $INIT_TS"
-  echo "[run $run]  First Resend success : $SUCC_TS"
-  echo "[run $run]  Fail‑over time       : ${failover} s"
+  echo "[run $run]  ORDER_ID          : $ORDER_ID"
+  echo "[run $run]  Original request  : $ORIG_TS"
+  echo "[run $run]  Last Resend       : $INIT_TS"
+  echo "[run $run]  Resend success    : $SUCC_TS"
+  echo "[run $run]  Fail‑over time    : ${failover} s"
   echo
 
-  failovers+=("$failover")
-  sum_failover_time=$(echo "$sum_failover_time + $failover" | bc -l)
 done
 
 # Summary
@@ -135,4 +139,4 @@ echo "══════════════  Summary of $N runs  ═══�
 echo "Fail‑over times     : $(printf '%s, ' "${failovers[@]}" | sed 's/, $//')"
 echo "Average fail‑over   : ${avg_fail} s"
 
-docker compose down
+docker compose stop
