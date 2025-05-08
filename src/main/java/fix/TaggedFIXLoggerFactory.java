@@ -1,10 +1,13 @@
 package fix;
 
+import lombok.Getter;
 import org.slf4j.event.Level;
 import quickfix.Log;
 import quickfix.LogFactory;
 import quickfix.SessionID;
 import trading.common.AsyncLogger;
+
+import java.util.concurrent.atomic.AtomicLong;
 
 public class TaggedFIXLoggerFactory implements LogFactory {
 
@@ -19,7 +22,11 @@ public class TaggedFIXLoggerFactory implements LogFactory {
         return new TaggedMsgLogger(sessionID, logger);
     }
 
-    static class TaggedMsgLogger implements Log {
+    public static class TaggedMsgLogger implements Log {
+        @Getter
+        private static final AtomicLong outByteCounter = new AtomicLong();
+        @Getter
+        private static final AtomicLong inByteCounter = new AtomicLong();
         private final AsyncLogger logger;
         private final String inLabel;
         private final String outLabel;
@@ -38,12 +45,22 @@ public class TaggedFIXLoggerFactory implements LogFactory {
 
         @Override
         public void onIncoming(String msg) {
-            logger.logTaggedFIXMessage(inLabel, Level.INFO, msg);
+            String label = inLabel;
+            if (msg != null) {
+                long offset = inByteCounter.addAndGet(msg.length());
+                label += toLabel(offset);
+            }
+            logger.logTaggedFIXMessage(label, Level.INFO, msg);
         }
 
         @Override
         public void onOutgoing(String msg) {
-            logger.logTaggedFIXMessage(outLabel, Level.INFO, msg);
+            String label = outLabel;
+            if (msg != null) {
+                long offset = outByteCounter.addAndGet(msg.length());
+                label += toLabel(offset);
+            }
+            logger.logTaggedFIXMessage(label, Level.INFO, msg);
         }
 
         @Override
@@ -60,6 +77,10 @@ public class TaggedFIXLoggerFactory implements LogFactory {
         public void clear() {
             logger.logTaggedFIXMessage(errorLabel, Level.INFO, "Log clear operation not supported.");
         }
+    }
+
+    private static String toLabel(long offset) {
+        return " " + String.format("%10s", offset) + " :";
     }
 
 }

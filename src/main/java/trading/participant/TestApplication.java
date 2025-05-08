@@ -1,14 +1,7 @@
 package trading.participant;
 
-import com.lmax.disruptor.dsl.ProducerType;
-import org.agrona.concurrent.ShutdownSignalBarrier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import trading.api.MarketUpdate;
-import trading.api.OrderMessage;
-import trading.common.DisruptorLFQueue;
-import trading.common.LFQueue;
-import trading.participant.strategy.TradeEngineUpdate;
 
 public class TestApplication {
     private static final Logger log = LoggerFactory.getLogger(TestApplication.class);

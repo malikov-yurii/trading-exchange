@@ -3,7 +3,7 @@ package trading.participant.strategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trading.api.MarketUpdate;
-import trading.api.OrderMessage;
+import trading.api.OrderResponse;
 import trading.api.Side;
 import trading.common.Constants;
 
@@ -25,7 +25,7 @@ public class MarketMaker implements TradingAlgo {
     public void onOrderBookUpdate(long tickerId, long price, Side side, MarketOrderBook marketOrderBook) {
 //        log.info("MarketMaker received order book update: tickerId={}, price={}, side={}", tickerId, price, side);
         MarketOrderBook.BBO bbo = marketOrderBook.getBBO();
-        double fairPrice = featureEngine.getMarketPrice();
+        double fairPrice = featureEngine.getFairMarketPrice();
 
         if (bbo.getBidPrice() != Constants.PRICE_INVALID
                 && bbo.getAskPrice() != Constants.PRICE_INVALID
@@ -48,9 +48,9 @@ public class MarketMaker implements TradingAlgo {
     }
 
     @Override
-    public void onOrderUpdate(OrderMessage orderMessage) {
+    public void onOrderUpdate(OrderResponse orderResponse) {
 //        log.info("onOrderUpdate. {}", orderMessage);
-        orderManager.onOrderMessage(orderMessage);
+        orderManager.onOrderMessage(orderResponse);
     }
 
 }

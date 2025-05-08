@@ -6,7 +6,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import trading.api.OrderMessage;
+import trading.api.OrderResponse;
 import trading.api.OrderRequest;
 import trading.api.OrderRequestType;
 import trading.api.Side;
@@ -31,20 +31,20 @@ public class OrderManager {
         this.nextOrderId = new AtomicLong();
     }
 
-    public void onOrderMessage(OrderMessage orderMessage) {
+    public void onOrderMessage(OrderResponse orderResponse) {
         Order order;
-        switch (orderMessage.getType()) {
+        switch (orderResponse.getType()) {
             case ACCEPTED:
-                order = tickerOrderSideMap.getOrder(orderMessage.getTickerId(), orderMessage.getSide());
+                order = tickerOrderSideMap.getOrder(orderResponse.getTickerId(), orderResponse.getSide());
                 order.setOrderStatus(OrderStatus.LIVE);
                 break;
             case CANCELED:
-                order = tickerOrderSideMap.getOrder(orderMessage.getTickerId(), orderMessage.getSide());
+                order = tickerOrderSideMap.getOrder(orderResponse.getTickerId(), orderResponse.getSide());
                 order.setOrderStatus(OrderStatus.DEAD);
                 break;
             case FILLED:
-                order = tickerOrderSideMap.getOrder(orderMessage.getTickerId(), orderMessage.getSide());
-                order.setQty(orderMessage.getLeavesQty());
+                order = tickerOrderSideMap.getOrder(orderResponse.getTickerId(), orderResponse.getSide());
+                order.setQty(orderResponse.getLeavesQty());
                 if (order.getQty() == 0) {
                     order.setOrderStatus(OrderStatus.DEAD);
                 }
@@ -52,7 +52,7 @@ public class OrderManager {
             case CANCEL_REJECTED:
             case INVALID:
             default:
-                log.info("Received message type: {}", orderMessage.getType());
+                log.info("Received message type: {}", orderResponse.getType());
         }
     }
 

@@ -35,7 +35,7 @@
 
 set -e
 
-N=${1:-1}               # how many fail‑over cycles to execute
+N=${1:-1}               # how many test cycles to execute
 export TEST_ID=5        # kept from your original script
 export FIX_LOGGER=TAGGED
 export TRADER_JAVA_TOOL_OPTIONS="-Dlogback.configurationFile=/root/jar/logback-debug.xml -XX:+TieredCompilation -XX:TieredStopAtLevel=4 -XX:+AlwaysPreTouch -XX:+UseNUMA -XX:+UseStringDeduplication -Xms2G -Xmx4G"

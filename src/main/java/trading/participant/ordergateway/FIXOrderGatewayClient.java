@@ -1,7 +1,6 @@
 package trading.participant.ordergateway;
 
 import fix.FixUtils;
-import fix.PipeDelimitedFIXLoggerFactory;
 import fix.ReusableMessageFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,8 +18,8 @@ import quickfix.SessionID;
 import quickfix.SessionSettings;
 import quickfix.ThreadedSocketInitiator;
 import quickfix.field.MsgType;
-import trading.api.OrderMessage;
-import trading.api.OrderMessageSerDe;
+import trading.api.OrderResponse;
+import trading.api.OrderResponseSerDe;
 import trading.api.OrderRequest;
 import trading.api.OrderRequestSerDe;
 import trading.common.AsyncLogger;
@@ -138,9 +137,9 @@ public class FIXOrderGatewayClient extends MessageCracker implements OrderGatewa
                     || MsgType.ORDER_CANCEL_REJECT.equals(msgType)) {
 
                 TradeEngineUpdate tradeEngineUpdate = tradeEngineUpdateThreadLocal.get();
-                OrderMessage orderMessage = tradeEngineUpdate.getOrderMessage();
+                OrderResponse orderResponse = tradeEngineUpdate.getOrderResponse();
 
-                OrderMessageSerDe.toOrderMessage(message, orderMessage);
+                OrderResponseSerDe.toOrderMessage(message, orderResponse);
 //                log.info("Received orderMessage: {}. FIX: {}", orderMessage, fixMsg);
 
                 tradeEngineUpdates.offer(tradeEngineUpdate);
@@ -259,9 +258,9 @@ public class FIXOrderGatewayClient extends MessageCracker implements OrderGatewa
                     || MsgType.REJECT.equals(msgType)) {
 
                 TradeEngineUpdate tradeEngineUpdate = tradeEngineUpdateThreadLocal.get();
-                OrderMessage orderMessage = tradeEngineUpdate.getOrderMessage();
+                OrderResponse orderResponse = tradeEngineUpdate.getOrderResponse();
 
-                OrderMessageSerDe.toOrderMessage(message, orderMessage);
+                OrderResponseSerDe.toOrderMessage(message, orderResponse);
 //                log.info("fromAdmin. Received orderMessage: {}. FIX: {}", orderMessage, fixMsg);
 
                 tradeEngineUpdates.offer(tradeEngineUpdate);

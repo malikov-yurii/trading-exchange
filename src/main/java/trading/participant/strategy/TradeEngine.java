@@ -4,8 +4,8 @@ import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trading.api.MarketUpdate;
-import trading.api.OrderMessage;
-import trading.api.OrderMessageType;
+import trading.api.OrderResponse;
+import trading.api.OrderResponseType;
 import trading.api.OrderRequest;
 import trading.api.Side;
 import trading.common.Constants;
@@ -92,7 +92,7 @@ public class TradeEngine {
             if (tradeEngineUpdate.getType() == TradeEngineUpdate.Type.MARKET_UPDATE) {
                 onMarketUpdate(tradeEngineUpdate.getMarketUpdate());
             } else if (tradeEngineUpdate.getType() == TradeEngineUpdate.Type.ORDER_MESSAGE) {
-                onOrderMessage(tradeEngineUpdate.getOrderMessage());
+                onOrderMessage(tradeEngineUpdate.getOrderResponse());
             } else {
                 log.error("Unknown TradeEngineUpdate type: {}", tradeEngineUpdate.getType());
             }
@@ -107,18 +107,18 @@ public class TradeEngine {
         lastUpdateTime.set(System.currentTimeMillis());
     }
 
-    public void onOrderMessage(OrderMessage orderMessage) {
-        if (orderMessage.getType() == OrderMessageType.FILLED) {
-            positionManager.addFill(orderMessage);
+    public void onOrderMessage(OrderResponse orderResponse) {
+        if (orderResponse.getType() == OrderResponseType.FILLED) {
+            positionManager.addFill(orderResponse);
         }
-        algo.onOrderUpdate(orderMessage);
+        algo.onOrderUpdate(orderResponse);
         lastUpdateTime.set(System.currentTimeMillis());
     }
 
     public void onOrderBookUpdate(MarketOrderBook orderBook, long price, Side side) {
         try {
 //            log.info("onOrderBookUpdate. tickerId: {}, {} @{}", orderBook.getTickerId(), side, price);
-            positionManager.updateBBO(orderBook.getTickerId(), orderBook.getBBO());
+            positionManager.onBBOUpdate(orderBook.getTickerId(), orderBook.getBBO());
             featureEngine.onOrderBookUpdate(orderBook, price, side);
             algo.onOrderBookUpdate(orderBook.getTickerId(), price, side, orderBook);
         } catch (Exception e) {

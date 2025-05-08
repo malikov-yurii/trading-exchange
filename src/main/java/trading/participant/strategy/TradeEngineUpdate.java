@@ -1,11 +1,10 @@
 package trading.participant.strategy;
 
-import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import trading.api.MarketUpdate;
-import trading.api.OrderMessage;
+import trading.api.OrderResponse;
 
 @Getter
 @Setter
@@ -13,7 +12,7 @@ import trading.api.OrderMessage;
 public class TradeEngineUpdate {
 
     private final MarketUpdate marketUpdate = new MarketUpdate();
-    private final OrderMessage orderMessage = new OrderMessage();
+    private final OrderResponse orderResponse = new OrderResponse();
     private Type type;
 
 
@@ -23,7 +22,7 @@ public class TradeEngineUpdate {
 
     @Override
     public String toString() {
-        return "TE-Upd{" + (isMarketData() ? marketUpdate : orderMessage +"}");
+        return "TE-Upd{" + (isMarketData() ? marketUpdate : orderResponse +"}");
     }
 
     private boolean isMarketData() {
@@ -35,7 +34,7 @@ public class TradeEngineUpdate {
         if (from.isMarketData()) {
             MarketUpdate.copy(from.marketUpdate, to.marketUpdate);
         } else {
-            OrderMessage.copy(from.orderMessage, to.orderMessage);
+            OrderResponse.copy(from.orderResponse, to.orderResponse);
         }
     }
 
@@ -44,9 +43,9 @@ public class TradeEngineUpdate {
         MarketUpdate.copy(marketUpdate, this.marketUpdate);
     }
 
-    public void set(OrderMessage orderMessage) {
+    public void set(OrderResponse orderResponse) {
         this.type = Type.ORDER_MESSAGE;
-        OrderMessage.copy(orderMessage, this.orderMessage);
+        OrderResponse.copy(orderResponse, this.orderResponse);
     }
 
     public enum Type {

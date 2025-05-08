@@ -1,6 +1,6 @@
 package trading.participant.strategy;
 
-import trading.api.OrderMessage;
+import trading.api.OrderResponse;
 import trading.common.Constants;
 
 public class PositionManager {
@@ -15,14 +15,14 @@ public class PositionManager {
 
     }
 
-    public void updateBBO(long tickerId, MarketOrderBook.BBO bbo) {
+    public void onBBOUpdate(long tickerId, MarketOrderBook.BBO bbo) {
         Position position = positions[(int) tickerId];
         position.updatePnl(bbo);
     }
 
-    public void addFill(OrderMessage orderMessage) {
-        Position position = positions[(int) orderMessage.getTickerId()];
-        position.addFill(orderMessage);
+    public void addFill(OrderResponse orderResponse) {
+        Position position = positions[(int) orderResponse.getTickerId()];
+        position.addFill(orderResponse);
     }
 
     public Position getPosition(int i) {

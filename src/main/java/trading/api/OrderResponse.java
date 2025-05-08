@@ -7,10 +7,10 @@ import lombok.NoArgsConstructor;
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-public class OrderMessage {
+public class OrderResponse {
 
     private long seqNum;
-    private OrderMessageType type = OrderMessageType.INVALID;
+    private OrderResponseType type = OrderResponseType.INVALID;
     private long clientId;
     private long tickerId;
     private long clientOrderId;
@@ -20,13 +20,13 @@ public class OrderMessage {
     private long execQty;
     private long leavesQty;
 
-    public OrderMessage(OrderMessageType type, long clientId, long tickerId, long clientOrderId,
-                        long marketOrderId, Side side, long price, long execQty, long leavesQty) {
+    public OrderResponse(OrderResponseType type, long clientId, long tickerId, long clientOrderId,
+                         long marketOrderId, Side side, long price, long execQty, long leavesQty) {
         set(type, clientId, tickerId, clientOrderId,
                 marketOrderId, side, price, execQty, leavesQty);
     }
 
-    public void set(OrderMessageType type, long clientId, long tickerId, long clientOrderId,
+    public void set(OrderResponseType type, long clientId, long tickerId, long clientOrderId,
                     long marketOrderId, Side side, long price, long execQty, long leavesQty) {
         this.type = type;
         this.clientId = clientId;
@@ -41,7 +41,7 @@ public class OrderMessage {
 
     public void reset() {
         seqNum = 0L;
-        type = OrderMessageType.INVALID;
+        type = OrderResponseType.INVALID;
         clientId = 0L;
         tickerId = 0L;
         clientOrderId = 0L;
@@ -52,7 +52,7 @@ public class OrderMessage {
         leavesQty = 0L;
     }
 
-    public static void copy(OrderMessage from, OrderMessage to) {
+    public static void copy(OrderResponse from, OrderResponse to) {
         to.setSeqNum(from.getSeqNum());
         to.setType(from.getType());
         to.setClientId(from.getClientId());

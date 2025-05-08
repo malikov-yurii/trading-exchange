@@ -3,7 +3,7 @@ package trading.participant.strategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trading.api.MarketUpdate;
-import trading.api.OrderMessage;
+import trading.api.OrderResponse;
 import trading.api.Side;
 import trading.common.Constants;
 
@@ -51,8 +51,8 @@ public class LiquidityTaker implements TradingAlgo {
     }
 
     @Override
-    public void onOrderUpdate(OrderMessage orderMessage) {
-        orderManager.onOrderMessage(orderMessage);
+    public void onOrderUpdate(OrderResponse orderResponse) {
+        orderManager.onOrderMessage(orderResponse);
     }
 
 }

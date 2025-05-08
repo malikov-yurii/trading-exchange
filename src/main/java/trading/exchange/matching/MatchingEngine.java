@@ -3,11 +3,10 @@ package trading.exchange.matching;
 import trading.common.Constants;
 import trading.api.MarketUpdate;
 import trading.api.OrderRequest;
-import trading.api.OrderMessage;
+import trading.api.OrderResponse;
 import trading.common.LFQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import trading.common.Utils;
 
 import java.util.Arrays;
 
@@ -16,12 +15,12 @@ public final class MatchingEngine {
 
     private final OrderBook[] tickerOrderBook;
     private LFQueue<OrderRequest> incomingRequests;
-    private LFQueue<OrderMessage> outgoingResponses;
+    private LFQueue<OrderResponse> outgoingResponses;
     private LFQueue<MarketUpdate> outgoingMdUpdates;
 
     public MatchingEngine(
             LFQueue<OrderRequest> clientRequests,
-            LFQueue<OrderMessage> clientResponses,
+            LFQueue<OrderResponse> clientResponses,
             LFQueue<MarketUpdate> marketUpdates
     ) {
         this.incomingRequests = clientRequests;
@@ -64,7 +63,7 @@ public final class MatchingEngine {
         }
     }
 
-    public void sendClientResponse(OrderMessage response) {
+    public void sendClientResponse(OrderResponse response) {
         if (log.isDebugEnabled()) {
             log.debug("Sending {}", response);
         }

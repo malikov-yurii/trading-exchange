@@ -3,7 +3,7 @@ package trading.api;
 import lombok.Getter;
 
 @Getter
-public enum OrderMessageType {
+public enum OrderResponseType {
 
     INVALID((byte) 0),
     ACCEPTED((byte) 1),
@@ -14,7 +14,7 @@ public enum OrderMessageType {
 
     private final byte value;
 
-    OrderMessageType(byte value) {
+    OrderResponseType(byte value) {
         this.value = value;
     }
 

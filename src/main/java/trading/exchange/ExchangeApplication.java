@@ -5,7 +5,7 @@ import org.agrona.concurrent.ShutdownSignalBarrier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trading.api.MarketUpdate;
-import trading.api.OrderMessage;
+import trading.api.OrderResponse;
 import trading.api.OrderRequest;
 import trading.common.Constants;
 import trading.common.DisruptorLFQueue;
@@ -25,7 +25,7 @@ public class ExchangeApplication {
     private ZooKeeperLeadershipManager leadershipManager;
 
     private LFQueue<OrderRequest> clientRequests;
-    private LFQueue<OrderMessage> clientResponses;
+    private LFQueue<OrderResponse> clientResponses;
     private LFQueue<MarketUpdate> marketUpdates;
     private LFQueue<MarketUpdate> sequencedMarketUpdates;
     private MatchingEngine matchingEngine;
@@ -52,7 +52,7 @@ public class ExchangeApplication {
         asyncLogger = new DisruptorLogger(10);
 
         clientRequests = new DisruptorLFQueue<>(null, "clientRequests", ProducerType.SINGLE, OrderRequest::new, OrderRequest::copy);
-        clientResponses = new DisruptorLFQueue<>(null, "clientResponses", ProducerType.SINGLE, OrderMessage::new, OrderMessage::copy);
+        clientResponses = new DisruptorLFQueue<>(null, "clientResponses", ProducerType.SINGLE, OrderResponse::new, OrderResponse::copy);
         marketUpdates = new DisruptorLFQueue<>(20, "marketUpdates", ProducerType.SINGLE, MarketUpdate::new, MarketUpdate::copy);
         sequencedMarketUpdates = new DisruptorLFQueue<>(20, "sequencedMarketUpdates", ProducerType.SINGLE, MarketUpdate::new, MarketUpdate::copy);
 

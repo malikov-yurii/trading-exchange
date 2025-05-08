@@ -14,19 +14,19 @@ import quickfix.field.Symbol;
 
 import java.time.LocalDateTime;
 
-public class OrderMessageSerDe {
-    private static final Logger log = LoggerFactory.getLogger(OrderMessageSerDe.class);
+public class OrderResponseSerDe {
+    private static final Logger log = LoggerFactory.getLogger(OrderResponseSerDe.class);
 
-    public static void toFIXMessage(OrderMessage orderMessage, Message msg) {
+    public static void toFIXMessage(OrderResponse orderResponse, Message msg) {
         msg.clear();
-        msg.setString(37, Long.toString(orderMessage.getMarketOrderId())); // OrderID
-        msg.setString(17, Long.toString(orderMessage.getSeqNum()));        // ExecID
+        msg.setString(37, Long.toString(orderResponse.getMarketOrderId())); // OrderID
+        msg.setString(17, Long.toString(orderResponse.getSeqNum()));        // ExecID
 
         char execType;
         char ordStatus;
         char msgType;
 
-        switch (orderMessage.getType()) {
+        switch (orderResponse.getType()) {
             case ACCEPTED -> {
                 execType = '0'; ordStatus = '0'; msgType = '8';
             }
@@ -39,12 +39,12 @@ public class OrderMessageSerDe {
             case CANCEL_REJECTED -> {
                 execType = '9'; ordStatus = '8'; msgType = '9';
                 msg.setString(434, "1");        // CxlRejResponseTo 1: Cancel 2: Amend
-                msg.setString(41, Long.toString(orderMessage.getClientOrderId()));        // OrigClOrdID
+                msg.setString(41, Long.toString(orderResponse.getClientOrderId()));        // OrigClOrdID
             }
             case REQUEST_REJECT -> {
                 execType = 'z' /* non-relevant */; ordStatus = 'z' /* non-relevant */; msgType = '3';
                 msg.setString(58, "Reject New Order Request: Duplicate ClOrdID");
-                msg.setString(45, Long.toString(orderMessage.getClientOrderId())); //RefSeqNum
+                msg.setString(45, Long.toString(orderResponse.getClientOrderId())); //RefSeqNum
             }
             default -> {
                 execType = '8'; ordStatus = '8'; msgType = '8';
@@ -58,16 +58,16 @@ public class OrderMessageSerDe {
             msg.setChar(150, execType); // ExecType
             msg.setChar(39, ordStatus); // OrdStatus
         }
-        msg.setString(11, Long.toString(orderMessage.getClientOrderId())); // ClOrdID
+        msg.setString(11, Long.toString(orderResponse.getClientOrderId())); // ClOrdID
 
-        msg.setString(55, Long.toString(orderMessage.getTickerId()));      // Symbol
-        msg.setChar(54, orderMessage.getSide() == Side.BUY ? '1' : '2');   // Side
+        msg.setString(55, Long.toString(orderResponse.getTickerId()));      // Symbol
+        msg.setChar(54, orderResponse.getSide() == Side.BUY ? '1' : '2');   // Side
 
-        msg.setDouble(151, orderMessage.getLeavesQty());                   // LeavesQty
-        msg.setDouble(14, orderMessage.getExecQty());                      // CumQty
+        msg.setDouble(151, orderResponse.getLeavesQty());                   // LeavesQty
+        msg.setDouble(14, orderResponse.getExecQty());                      // CumQty
 
         if (msgType == '8') {
-            msg.setDouble(6, orderMessage.getExecQty() > 0 ? orderMessage.getPrice() : 0); // AvgPx
+            msg.setDouble(6, orderResponse.getExecQty() > 0 ? orderResponse.getPrice() : 0); // AvgPx
             msg.setChar(20, '0');                                              // ExecTransType
             msg.setChar(21, '1');                                              // HandlInst
         }
@@ -75,47 +75,47 @@ public class OrderMessageSerDe {
         msg.setUtcTimeStamp(60, LocalDateTime.now(), true);              // TransactTime
 
         // Custom tags
-        msg.setString(20001, Long.toString(orderMessage.getClientId()));  // clientId
-        msg.setString(20002, Long.toString(orderMessage.getSeqNum()));    // seqNum
+        msg.setString(20001, Long.toString(orderResponse.getClientId()));  // clientId
+        msg.setString(20002, Long.toString(orderResponse.getSeqNum()));    // seqNum
     }
 
-    public static void toOrderMessage(Message message, OrderMessage orderMessage) throws FieldNotFound {
-        orderMessage.setType(getOrderMessageType(message));
+    public static void toOrderMessage(Message message, OrderResponse orderResponse) throws FieldNotFound {
+        orderResponse.setType(getOrderMessageType(message));
 
 //        long clientOrderId = orderMessage.getType() == OrderMessageType.REQUEST_REJECT
 //                ? Long.parseLong(message.getString(45))
 //                : Long.parseLong(message.getString(ClOrdID.FIELD));
         long clientOrderId = Long.parseLong(message.getString(ClOrdID.FIELD));
-        orderMessage.setClientOrderId(clientOrderId);
-        orderMessage.setMarketOrderId(message.isSetField(OrderID.FIELD)
+        orderResponse.setClientOrderId(clientOrderId);
+        orderResponse.setMarketOrderId(message.isSetField(OrderID.FIELD)
                 ? Long.parseLong(message.getString(OrderID.FIELD)) : 0);
-        orderMessage.setClientId(1); // Replace with custom field extraction if needed
-        orderMessage.setTickerId(Long.parseLong(message.getString(Symbol.FIELD)));
+        orderResponse.setClientId(1); // Replace with custom field extraction if needed
+        orderResponse.setTickerId(Long.parseLong(message.getString(Symbol.FIELD)));
 
         char sideChar = message.getChar(quickfix.field.Side.FIELD);
-        orderMessage.setSide(sideChar == quickfix.field.Side.BUY ? Side.BUY : Side.SELL);
+        orderResponse.setSide(sideChar == quickfix.field.Side.BUY ? Side.BUY : Side.SELL);
 
-        orderMessage.setPrice(message.isSetField(quickfix.field.Price.FIELD)
+        orderResponse.setPrice(message.isSetField(quickfix.field.Price.FIELD)
                 ? (long) message.getDouble(quickfix.field.Price.FIELD) : 0);
-        orderMessage.setExecQty((long) message.getDouble(CumQty.FIELD));
-        orderMessage.setLeavesQty((long) message.getDouble(LeavesQty.FIELD));
+        orderResponse.setExecQty((long) message.getDouble(CumQty.FIELD));
+        orderResponse.setLeavesQty((long) message.getDouble(LeavesQty.FIELD));
     }
 
-    private static OrderMessageType getOrderMessageType(Message message) throws FieldNotFound {
+    private static OrderResponseType getOrderMessageType(Message message) throws FieldNotFound {
         String msgType = message.getHeader().getString(MsgType.FIELD);
         return switch (msgType) {
             case MsgType.EXECUTION_REPORT -> {
                 char execType = message.getChar(ExecType.FIELD);
                 yield switch (execType) {
-                    case ExecType.NEW -> OrderMessageType.ACCEPTED;
-                    case ExecType.FILL, ExecType.PARTIAL_FILL -> OrderMessageType.FILLED;
-                    case ExecType.CANCELED -> OrderMessageType.CANCELED;
-                    default -> OrderMessageType.INVALID;
+                    case ExecType.NEW -> OrderResponseType.ACCEPTED;
+                    case ExecType.FILL, ExecType.PARTIAL_FILL -> OrderResponseType.FILLED;
+                    case ExecType.CANCELED -> OrderResponseType.CANCELED;
+                    default -> OrderResponseType.INVALID;
                 };
             }
-            case MsgType.ORDER_CANCEL_REJECT -> OrderMessageType.CANCEL_REJECTED;
-            case MsgType.REJECT -> OrderMessageType.REQUEST_REJECT;
-            default -> OrderMessageType.INVALID;
+            case MsgType.ORDER_CANCEL_REJECT -> OrderResponseType.CANCEL_REJECTED;
+            case MsgType.REJECT -> OrderResponseType.REQUEST_REJECT;
+            default -> OrderResponseType.INVALID;
         };
     }
 

@@ -4,9 +4,9 @@ import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trading.api.MarketUpdate;
-import trading.api.OrderMessage;
 import trading.api.OrderRequest;
 import trading.api.OrderRequestType;
+import trading.api.OrderResponse;
 import trading.api.Side;
 
 import java.time.LocalDateTime;
@@ -21,7 +21,6 @@ import static trading.common.Utils.env;
 public abstract class TestAlgo implements TradingAlgo {
 
     private static final Logger log = LoggerFactory.getLogger(TestAlgo.class);
-    public final int WARMUP_ORDER_NUMBER;
 
     private final TradeEngine tradeEngine;
 
@@ -43,7 +42,6 @@ public abstract class TestAlgo implements TradingAlgo {
     public TestAlgo(TradeEngine tradeEngine) {
         log.info("TradingAlgo. Init.");
         this.tradeEngine = tradeEngine;
-        this.WARMUP_ORDER_NUMBER = Integer.valueOf(env("WARMUP_ORDER_NUMBER", "400000"));
         sleepTime = Integer.parseInt(env("SLEEP_TIME_MS", "500"));
         orderNum = Integer.parseInt(env("TOTAL_ORDER_NUMBER", "1_0"));
         clientNum = 4;
@@ -60,7 +58,7 @@ public abstract class TestAlgo implements TradingAlgo {
             try {
                 this.run();
                 log.info("-------------------------------> TEST{} DONE <------------------------------ last order id {}",
-                        currentTestId, nextOrderId.get() - 1);
+                        currentTestId, nextOrderId() - 1);
             } catch (Exception ex) {
                 log.error("init. Failed. TEST_ID: " + currentTestId, ex);
             }
@@ -80,7 +78,7 @@ public abstract class TestAlgo implements TradingAlgo {
     }
 
     @Override
-    public void onOrderUpdate(OrderMessage orderMessage) {
+    public void onOrderUpdate(OrderResponse orderResponse) {
     }
 
     protected void sendOrderRequest(OrderRequest orderRequest) {
@@ -96,19 +94,19 @@ public abstract class TestAlgo implements TradingAlgo {
         newOrderRequest.setQty(qty);
         newOrderRequest.setPrice(price);
         tradeEngine.sendOrderRequest(newOrderRequest);
-
-        if (nextOrderId.get() == WARMUP_ORDER_NUMBER) {
-            log.info("Sleeping {}ms on next order |11={}|", sleepTime, WARMUP_ORDER_NUMBER);
-            sleep(sleepTime);
-        }
     }
 
-    private static void sleep(int millis) {
-        if (millis < 1) {
+    protected long nextOrderId() {
+        return nextOrderId.get();
+    }
+
+    protected void sleep() {
+        if (sleepTime < 1) {
             return;
         }
         try {
-            Thread.sleep(millis);
+            log.info("Sleeping {}ms on next order |11={}|", sleepTime, getNextOrderId());
+            Thread.sleep(sleepTime);
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }

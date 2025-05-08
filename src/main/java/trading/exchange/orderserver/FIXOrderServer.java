@@ -21,8 +21,8 @@ import quickfix.Session;
 import quickfix.SessionID;
 import quickfix.SessionSettings;
 import quickfix.ThreadedSocketAcceptor;
-import trading.api.OrderMessage;
-import trading.api.OrderMessageSerDe;
+import trading.api.OrderResponse;
+import trading.api.OrderResponseSerDe;
 import trading.api.OrderRequest;
 import trading.api.OrderRequestSerDe;
 import trading.common.AsyncLogger;
@@ -47,7 +47,7 @@ public class FIXOrderServer implements OrderServer {
     private static final Logger log = LoggerFactory.getLogger(FIXOrderServer.class);
 
     private final LFQueue<OrderRequest> clientRequests;
-    private final LFQueue<OrderMessage> clientResponses;
+    private final LFQueue<OrderResponse> clientResponses;
     private final LeadershipManager leadershipManager;
     private final AppState appState;
 
@@ -68,7 +68,7 @@ public class FIXOrderServer implements OrderServer {
     private final AsyncLogger asyncLogger;
 
     public FIXOrderServer(LFQueue<OrderRequest> clientRequests,
-                          LFQueue<OrderMessage> clientResponses,
+                          LFQueue<OrderResponse> clientResponses,
                           LeadershipManager leadershipManager,
                           AppState appState,
                           AsyncLogger asyncLogger) {
@@ -212,26 +212,26 @@ public class FIXOrderServer implements OrderServer {
         }
     }
 
-    private void processResponse(OrderMessage orderMessage) {
+    private void processResponse(OrderResponse orderResponse) {
         try {
             if (appState.isNotRecoveredLeader()) {
                 if (log.isDebugEnabled()) {
-                    log.debug("processResponse. isNotRecoveredLeader. Not publishing {}", orderMessage);
+                    log.debug("processResponse. isNotRecoveredLeader. Not publishing {}", orderResponse);
                 }
                 return;
             }
 
             if (log.isDebugEnabled()) {
-                log.debug("Start Sending {}", orderMessage);
+                log.debug("Start Sending {}", orderResponse);
             }
-            if (orderMessage == null) {
+            if (orderResponse == null) {
                 log.info("processResponse. orderMessage == null");
             }
 
             long seq = respSeqNum.getAndIncrement();
-            orderMessage.setSeqNum(seq);
+            orderResponse.setSeqNum(seq);
 
-            long clientId = orderMessage.getClientId();
+            long clientId = orderResponse.getClientId();
             SessionHolder sessionHolder = getSessionHolder(clientId, null);
             SessionID sessionId = sessionHolder.sessionId;
             if (sessionId == null) {
@@ -240,15 +240,15 @@ public class FIXOrderServer implements OrderServer {
             }
 
             Message msg = sessionHolder.reusableOutMessage;
-            OrderMessageSerDe.toFIXMessage(orderMessage, msg);
+            OrderResponseSerDe.toFIXMessage(orderResponse, msg);
 
             Session.sendToTarget(msg, sessionId);
             if (log.isDebugEnabled()) {
                 log.debug("Sending FIX response to clientId={}: {} {}", clientId,
-                        msg.toString().replace('\u0001', '|'), orderMessage);
+                        msg.toString().replace('\u0001', '|'), orderResponse);
             }
         } catch (Exception e) {
-            log.error("Failed to send FIX OrderMessage, " + orderMessage + " sessionHolder", e);
+            log.error("Failed to send FIX OrderMessage, " + orderResponse + " sessionHolder", e);
         }
     }
 

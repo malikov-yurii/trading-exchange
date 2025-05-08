@@ -86,19 +86,21 @@ public class DisruptorLogger implements AsyncLogger {
             return null;
         }
         if (msg.contains("|35=D|")) {
-            fixMsgDescription = "New Order Request";
+            fixMsgDescription = "New Order";
         } else if (msg.contains("|39=0|")) {
             fixMsgDescription = "New Order Ack";
         } else if (msg.contains("|35=3|")) {
             fixMsgDescription = "New Order Nack";
         } else if (msg.contains("|35=F|")) {
-            fixMsgDescription = "Cancel Order Request";
+            fixMsgDescription = "Cancel Order";
         } else if (msg.contains("|39=4|")) {
             fixMsgDescription = "Cancel Order Ack";
         } else if (msg.contains("|35=9|")) {
             fixMsgDescription = "Cancel Order Nack";
+        } else if (msg.contains("|39=2|")) {
+            fixMsgDescription = "Trade";
         }
-        return String.format("%-20s", fixMsgDescription);
+        return String.format("%-17s", fixMsgDescription);
     }
 
     private static String toLogLine(LogRecord event, String msg) {

@@ -4,7 +4,7 @@ import lombok.Getter;
 import lombok.Setter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import trading.api.OrderMessage;
+import trading.api.OrderResponse;
 import trading.api.Side;
 
 import static trading.common.Constants.PRICE_INVALID;
@@ -36,11 +36,11 @@ public class Position {
         totalPnl = realizedPnl + unrealizedPnl;
     }
 
-    public void addFill(OrderMessage orderMessage) {
-        double fillPrice = orderMessage.getPrice();
-        long fillQty = orderMessage.getExecQty();
+    public void addFill(OrderResponse orderResponse) {
+        double fillPrice = orderResponse.getPrice();
+        long fillQty = orderResponse.getExecQty();
         double fillValue = fillPrice * fillQty;
-        Side side = orderMessage.getSide();
+        Side side = orderResponse.getSide();
         int sign = side == Side.BUY ? 1 : -1;
 
         if (position == 0) {

@@ -3,7 +3,7 @@ package trading.participant.strategy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import trading.api.MarketUpdate;
-import trading.api.OrderMessage;
+import trading.api.OrderResponse;
 import trading.api.OrderRequestType;
 import trading.api.Side;
 
@@ -12,10 +12,10 @@ import java.time.LocalDateTime;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
-import static trading.api.OrderMessageType.ACCEPTED;
-import static trading.api.OrderMessageType.CANCELED;
-import static trading.api.OrderMessageType.CANCEL_REJECTED;
-import static trading.api.OrderMessageType.REQUEST_REJECT;
+import static trading.api.OrderResponseType.ACCEPTED;
+import static trading.api.OrderResponseType.CANCELED;
+import static trading.api.OrderResponseType.CANCEL_REJECTED;
+import static trading.api.OrderResponseType.REQUEST_REJECT;
 import static fix.FixUtils.getTestTag;
 
 public class TestAlgo_5_Failover extends TestAlgo {
@@ -32,44 +32,44 @@ public class TestAlgo_5_Failover extends TestAlgo {
     }
 
     @Override
-    public void onOrderUpdate(OrderMessage orderMessage) {
+    public void onOrderUpdate(OrderResponse orderResponse) {
         TestRequest orderRequest = getOrderRequest();
         synchronized (orderRequest) {
-            long orderId = orderMessage.getClientOrderId();
+            long orderId = orderResponse.getClientOrderId();
 
             if (requestResent && !testFinished) {
-                if (orderMessage.getClientOrderId() != orderRequest.getOrderId()) {
-                    log.warn("Unexpected {}", orderMessage);
+                if (orderResponse.getClientOrderId() != orderRequest.getOrderId()) {
+                    log.warn("Unexpected {}", orderResponse);
                     return;
                 }
-                String testTag = getTestTag(orderMessage.getClientOrderId());
+                String testTag = getTestTag(orderResponse.getClientOrderId());
                 log.info("-------------------------------" + testTag+ " FAILOVER SUCCEEDED---------------------------------");
                 log.info("onOrderUpdate. [{}]. Failover succeeded in [{}] ms. Received Ack. {}. {}",
                         testTag,
                         Duration.between(orderRequest.newOrderTime, LocalDateTime.now()).toMillis(),
-                        orderMessage,
+                        orderResponse,
                         orderRequest);
                 log.info("-------------------------------" + testTag+ " FAILOVER SUCCEEDED---------------------------------");
                 requestResent = false;
                 testFinished = true;
             }
 
-            if (orderMessage.getType() == ACCEPTED) {
-                log.info("{} onOrderUpdate. Received New Order ACK: {}", getTestTag(orderId), orderMessage);
+            if (orderResponse.getType() == ACCEPTED) {
+                log.info("{} onOrderUpdate. Received New Order ACK: {}", getTestTag(orderId), orderResponse);
                 sendCancelOrder();
-            } else if (orderMessage.getType() == REQUEST_REJECT) {
+            } else if (orderResponse.getType() == REQUEST_REJECT) {
                 /* Indicates New Order was Submitted successfully earlier. Thus, dup new order with the same clOrdId is rejected  */
-                log.info("{} onOrderUpdate. Received New Order NACK: {}", getTestTag(orderId), orderMessage);
+                log.info("{} onOrderUpdate. Received New Order NACK: {}", getTestTag(orderId), orderResponse);
                 sendCancelOrder();
-            } else if (orderMessage.getType() == CANCELED) {
-                log.info("{} onOrderUpdate. Received Cancel Order ACK: {}", getTestTag(orderId), orderMessage);
+            } else if (orderResponse.getType() == CANCELED) {
+                log.info("{} onOrderUpdate. Received Cancel Order ACK: {}", getTestTag(orderId), orderResponse);
                 sendNewOrder();
-            } else if (orderMessage.getType() == CANCEL_REJECTED ) {
+            } else if (orderResponse.getType() == CANCEL_REJECTED ) {
                 /* Indicates order was canceled earlier, and it is not live anymore */
-                log.info("{} onOrderUpdate. Received Cancel Order NACK: {}", getTestTag(orderId), orderMessage);
+                log.info("{} onOrderUpdate. Received Cancel Order NACK: {}", getTestTag(orderId), orderResponse);
                 sendNewOrder();
             } else {
-                log.error("onOrderUpdate. Unexpected {}", orderMessage);
+                log.error("onOrderUpdate. Unexpected {}", orderResponse);
             }
         }
     }
