@@ -175,9 +175,9 @@ echo "============================== All $N test runs complete =================
 echo
 echo "Throughputs           : $(printf '%s, ' "${throughputs[@]}" | sed 's/, $//')"
 echo "Average Throughput    : ${avg_throughput} req/sec"
-echo "OUT Data Rates        : $(printf '%s, ' "${out_data_rates[@]}" | sed 's/, $//')"
+echo "Trader OUT Data Rates : $(printf '%s, ' "${out_data_rates[@]}" | sed 's/, $//')"
 echo "Average OUT Data Rate : ${avg_out_data_rate} req/sec"
-echo "IN Data Rates         : $(printf '%s, ' "${in_data_rates[@]}" | sed 's/, $//')"
+echo "Trader IN Data Rates  : $(printf '%s, ' "${in_data_rates[@]}" | sed 's/, $//')"
 echo "Average IN Data Rate  : ${avg_in_data_rate} req/sec"
 
 docker compose stop
