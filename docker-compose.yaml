@@ -42,7 +42,6 @@ services:
       THISHOST: "exchange-1"
       JAVA_TOOL_OPTIONS: ${EXCHANGE_JAVA_TOOL_OPTIONS}
       FIX_LOGGER: ${FIX_LOGGER}
-      ZOO_SESSION_TIMEOUT: "10000"
     hostname: exchange-1
     volumes:
       - aeron-dir:/dev/shm/aeron-root
@@ -66,7 +65,6 @@ services:
       THISHOST: "exchange-2"
       JAVA_TOOL_OPTIONS: ${EXCHANGE_JAVA_TOOL_OPTIONS}
       FIX_LOGGER: ${FIX_LOGGER}
-      ZOO_SESSION_TIMEOUT: "10000"
     hostname: exchange-2
     volumes:
       - aeron-dir:/dev/shm/aeron-root
@@ -91,7 +89,6 @@ services:
       THISHOST: "exchange-3"
       JAVA_TOOL_OPTIONS: ${EXCHANGE_JAVA_TOOL_OPTIONS}
       FIX_LOGGER: ${FIX_LOGGER}
-      ZOO_SESSION_TIMEOUT: "10000"
     hostname: exchange-3
     volumes:
       - aeron-dir:/dev/shm/aeron-root
