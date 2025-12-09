@@ -42,6 +42,7 @@ services:
       THISHOST: "exchange-1"
       JAVA_TOOL_OPTIONS: ${EXCHANGE_JAVA_TOOL_OPTIONS}
       FIX_LOGGER: ${FIX_LOGGER}
+      ZOO_SESSION_TIMEOUT: "10000"
     hostname: exchange-1
     volumes:
       - aeron-dir:/dev/shm/aeron-root
@@ -65,6 +66,7 @@ services:
       THISHOST: "exchange-2"
       JAVA_TOOL_OPTIONS: ${EXCHANGE_JAVA_TOOL_OPTIONS}
       FIX_LOGGER: ${FIX_LOGGER}
+      ZOO_SESSION_TIMEOUT: "10000"
     hostname: exchange-2
     volumes:
       - aeron-dir:/dev/shm/aeron-root
@@ -89,6 +91,7 @@ services:
       THISHOST: "exchange-3"
       JAVA_TOOL_OPTIONS: ${EXCHANGE_JAVA_TOOL_OPTIONS}
       FIX_LOGGER: ${FIX_LOGGER}
+      ZOO_SESSION_TIMEOUT: "10000"
     hostname: exchange-3
     volumes:
       - aeron-dir:/dev/shm/aeron-root
@@ -118,16 +121,18 @@ services:
         ipv4_address: 10.43.0.2
 
   zookeeper:
-    image: bitnami/zookeeper:latest
+    image: zookeeper:3.9
     container_name: zookeeper
     hostname: zookeeper
     environment:
-      - ALLOW_ANONYMOUS_LOGIN=yes
       - ZOO_STANDALONE_ENABLED=true
-      - ZOO_SERVER_ID=1
-      - ZOO_ADVERTISED_HOSTNAME=zookeeper
+      - ZOO_TICK_TIME=200
+      - ZOO_INIT_LIMIT=5
+      - ZOO_SYNC_LIMIT=2
+      - ZOO_MIN_SESSION_TIMEOUT=300
+      - ZOO_MAX_SESSION_TIMEOUT=20000
     volumes:
-      - ./config/zoo.cfg:/opt/bitnami/zookeeper/conf/zoo.cfg
+      - ./config/zoo.cfg:/conf/zoo.cfg
     networks:
       default:
         ipv4_address: 10.43.0.3
